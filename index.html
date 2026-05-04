@@ -220,6 +220,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
   <div id="logo">HOOD BRIEF<span>BOSTON</span></div>
   <span class="live-badge">LIVE</span>
   <span class="city-label">Boston + Cambridge — Metro</span>
+  <span class="city-label" style="color:#f59e0b;font-size:10px;">⚠ Data reflects filed reports, not live dispatch</span>
   <div id="header-right">
     <button class="overlay-btn" id="btn-districts">Districts</button>
     <button class="overlay-btn" id="btn-heatmap">Heat Map</button>
@@ -402,7 +403,17 @@ function isNew(iso) { return (Date.now() - new Date(iso)) < 120000; }
 function timeStr(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  return d.toLocaleTimeString("en-US", {hour:"2-digit", minute:"2-digit", hour12:true});
+  // Show date + time since Boston data has a reporting lag (not live)
+  const now = new Date();
+  const diffDays = Math.floor((now - d) / 86400000);
+  if (diffDays === 0) {
+    return "Today " + d.toLocaleTimeString("en-US", {hour:"2-digit", minute:"2-digit", hour12:true});
+  } else if (diffDays === 1) {
+    return "Yesterday " + d.toLocaleTimeString("en-US", {hour:"2-digit", minute:"2-digit", hour12:true});
+  } else {
+    return d.toLocaleDateString("en-US", {month:"short", day:"numeric"}) + 
+           " " + d.toLocaleTimeString("en-US", {hour:"2-digit", minute:"2-digit", hour12:true});
+  }
 }
 
 function distTag(inc) {
