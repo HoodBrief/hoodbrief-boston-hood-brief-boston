@@ -26,8 +26,9 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 POLL_INTERVAL = 300   # seconds — poll every 5 minutes
 LOOKBACK_MINS = 15    # fetch incidents from last N minutes each poll
 
-# Boston Open Data API
-BOSTON_API    = "https://data.boston.gov/api/3/action/datastore_search_sql"
+# Cloudflare Worker proxy — routes around Boston API allowlist restriction
+# Set this to your deployed worker URL after deploying boston_worker.js
+WORKER_URL    = os.environ.get("WORKER_URL", "")
 RESOURCE_ID   = "12cb3883-56f5-47de-afa5-3b1cf61b257b"
 
 # ── BPD District Info ────────────────────────────────────────────────────────
@@ -141,25 +142,14 @@ def sb_upsert(table, rows):
 
 # ── Boston API Poller ─────────────────────────────────────────────────────────
 def fetch_recent_incidents(since_dt):
-    """Fetch BPD incidents since a given datetime."""
+    """Fetch BPD incidents via Cloudflare Worker proxy."""
     since_str = since_dt.strftime("%Y-%m-%d %H:%M:%S")
-    sql = f"""
-        SELECT
-            "INCIDENT_NUMBER", "OFFENSE_CODE", "OFFENSE_CODE_GROUP",
-            "OFFENSE_DESCRIPTION", "DISTRICT", "REPORTING_AREA",
-            "SHOOTING", "OCCURRED_ON_DATE", "YEAR", "MONTH",
-            "DAY_OF_WEEK", "HOUR", "UCR_PART", "STREET", "Lat", "Long"
-        FROM "{RESOURCE_ID}"
-        WHERE "OCCURRED_ON_DATE" >= '{since_str}'
-            AND "Lat" IS NOT NULL
-            AND "Lat" != '-1'
-            AND "Long" != '-1'
-        ORDER BY "OCCURRED_ON_DATE" DESC
-        LIMIT 100
-    """
+    if not WORKER_URL:
+        print("  [API] WORKER_URL not set — skipping")
+        return []
     r = requests.get(
-        BOSTON_API,
-        params={"sql": sql},
+        WORKER_URL,
+        params={"since": since_str, "limit": 100},
         timeout=20,
     )
     r.raise_for_status()
@@ -243,6 +233,7 @@ if __name__ == "__main__":
     errors = []
     if not SUPABASE_URL: errors.append("SUPABASE_URL not set")
     if not SUPABASE_KEY: errors.append("SUPABASE_KEY not set")
+    if not WORKER_URL:   errors.append("WORKER_URL not set — deploy Cloudflare Worker first")
     if errors:
         for e in errors:
             print(f"  ❌ {e}")
