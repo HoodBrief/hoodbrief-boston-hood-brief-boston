@@ -24,7 +24,7 @@ from datetime import datetime, timezone, timedelta
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 POLL_INTERVAL = 300   # seconds — poll every 5 minutes
-LOOKBACK_MINS = 1440  # fetch incidents from last 24 hours each poll
+LOOKBACK_MINS = 4320  # fetch incidents from last 3 days each poll (Boston has reporting lag)
 
 # Cloudflare Worker proxy — routes around Boston API allowlist restriction
 # Set this to your deployed worker URL after deploying boston_worker.js
@@ -100,7 +100,7 @@ def classify(row):
     ucr     = (row.get("UCR_PART") or "").strip()
     shooting= (row.get("SHOOTING") or "").strip().upper()
 
-    if shooting == "Y":
+    if shooting in ("Y", "1", 1, True):
         return "p1"
     if group in P1_OFFENSE_GROUPS or ucr == "Part One":
         return "p1"
@@ -116,7 +116,7 @@ def make_title(row):
     group = (row.get("OFFENSE_CODE_GROUP") or "").strip()
     desc  = (row.get("OFFENSE_DESCRIPTION") or "").strip().title()
     shooting = (row.get("SHOOTING") or "").strip().upper()
-    if shooting == "Y":
+    if shooting in ("Y", "1", 1, True):
         return "Shooting"
     if group:
         return group
@@ -166,7 +166,7 @@ def run_boston_pipeline():
 
     while True:
         # On first run load last 7 days to populate the feed
-        lookback = 10080 if first_run else LOOKBACK_MINS
+        lookback = 43200 if first_run else LOOKBACK_MINS  # 30 days first run, 24h ongoing
         first_run = False
         try:
             since = datetime.now(timezone.utc) - timedelta(minutes=lookback)
@@ -205,7 +205,7 @@ def run_boston_pipeline():
                     "priority":        priority,
                     "district":        district,
                     "district_name":   dist_info["name"],
-                    "shooting":        row.get("SHOOTING", "N") == "Y",
+                    "shooting":        row.get("SHOOTING", "0") in ("Y", "1"),
                     "gang_hotspot":    hotspot,
                     "gang_zone":       zone,
                     "occurred_at":     occurred,
