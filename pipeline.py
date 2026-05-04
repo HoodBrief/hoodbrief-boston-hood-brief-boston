@@ -29,7 +29,7 @@ LOOKBACK_MINS = 15    # fetch incidents from last N minutes each poll
 # Cloudflare Worker proxy — routes around Boston API allowlist restriction
 # Set this to your deployed worker URL after deploying boston_worker.js
 WORKER_URL    = os.environ.get("WORKER_URL", "")
-RESOURCE_ID   = "12cb3883-56f5-47de-afa5-3b1cf61b257b"
+RESOURCE_ID   = "b973d8cb-eeb2-4e7e-99da-c92938efc9c0"
 
 # ── BPD District Info ────────────────────────────────────────────────────────
 DISTRICTS = {
