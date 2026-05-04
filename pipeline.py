@@ -24,7 +24,7 @@ from datetime import datetime, timezone, timedelta
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 POLL_INTERVAL = 300   # seconds — poll every 5 minutes
-LOOKBACK_MINS = 15    # fetch incidents from last N minutes each poll
+LOOKBACK_MINS = 1440  # fetch incidents from last 24 hours each poll
 
 # Cloudflare Worker proxy — routes around Boston API allowlist restriction
 # Set this to your deployed worker URL after deploying boston_worker.js
@@ -162,10 +162,14 @@ def fetch_recent_incidents(since_dt):
 def run_boston_pipeline():
     print("[Boston] Pipeline started — polling every 5 minutes...")
     seen = set()   # track incident numbers to avoid duplicates within session
+    first_run = True
 
     while True:
+        # On first run load last 7 days to populate the feed
+        lookback = 10080 if first_run else LOOKBACK_MINS
+        first_run = False
         try:
-            since = datetime.now(timezone.utc) - timedelta(minutes=LOOKBACK_MINS)
+            since = datetime.now(timezone.utc) - timedelta(minutes=lookback)
             incidents = fetch_recent_incidents(since)
             new_count = 0
 
