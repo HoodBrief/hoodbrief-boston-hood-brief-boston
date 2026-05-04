@@ -349,9 +349,17 @@ const SB = {
 // ── MAP ───────────────────────────────────────────────────────────────────────
 function initMap() {
   S.map = L.map("map", {center: CONFIG.BOSTON_CENTER, zoom: CONFIG.BOSTON_ZOOM, zoomControl: true});
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap",
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
+    attribution: "© OpenStreetMap © CARTO",
+    subdomains: "abcd",
     maxZoom: 19,
+  }).addTo(S.map);
+  // Label layer on top so streets are readable
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", {
+    attribution: "",
+    subdomains: "abcd",
+    maxZoom: 19,
+    pane: "shadowPane",
   }).addTo(S.map);
 }
 
