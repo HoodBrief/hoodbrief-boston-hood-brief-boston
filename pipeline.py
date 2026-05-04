@@ -114,7 +114,7 @@ def sb_upsert(rows):
         json=rows,
         timeout=15,
     )
-    if r.status_code not in (200, 201, 204):
+    if r.status_code not in (200, 201, 204) and r.status_code != 409:
         print(f"  [Supabase] {r.status_code}: {r.text[:150]}")
 
 # ── Worker fetch ──────────────────────────────────────────────────────────────
@@ -197,44 +197,70 @@ def process_boston(rows, seen):
     return saved
 
 # ── Process Cambridge incidents ───────────────────────────────────────────────
+# Cambridge geocoder — street name to coords via simple lookup
+# Cambridge is small enough that street-level geocoding via Google is fine
+CAMBRIDGE_STREETS = {
+    "massachusetts ave": (42.3736, -71.1097),
+    "main st":           (42.3626, -71.0843),
+    "broadway":          (42.3662, -71.1004),
+    "cambridge st":      (42.3675, -71.1043),
+    "harvard sq":        (42.3732, -71.1190),
+    "central sq":        (42.3651, -71.1039),
+    "inman sq":          (42.3731, -71.0994),
+    "porter sq":         (42.3884, -71.1194),
+    "kendall sq":        (42.3626, -71.0843),
+    "mount auburn st":   (42.3736, -71.1343),
+    "fresh pond":        (42.3876, -71.1485),
+    "huron ave":         (42.3812, -71.1352),
+    "concord ave":       (42.3848, -71.1218),
+    "garden st":         (42.3782, -71.1173),
+    "brattle st":        (42.3773, -71.1237),
+    "clinton st":        (42.3651, -71.1039),
+    "western ave":       (42.3626, -71.1194),
+    "memorial dr":       (42.3601, -71.0900),
+}
+CAMBRIDGE_CENTER = (42.3736, -71.1097)
+
+def geocode_cambridge(street):
+    """Return (lat, lng) for a Cambridge street name."""
+    if not street:
+        return CAMBRIDGE_CENTER
+    sl = street.lower()
+    for known, coords in CAMBRIDGE_STREETS.items():
+        if known in sl:
+            return coords
+    return CAMBRIDGE_CENTER
+
 def process_cambridge(rows, seen):
+    """
+    Cambridge Daily Police Log fields:
+      id, date_time, type, subtype, location, description, last_updated
+    No lat/lng provided — we geocode from street name.
+    """
     saved = 0
     records = []
     for row in rows:
-        # Cambridge fields: id, case_number, date_time, event, location,
-        # neighborhood, lat, long (as :@computed_region fields or separate)
-        case_num = str(row.get("case_number") or row.get("id") or "")
+        case_num = str(row.get("id") or "")
         if not case_num or case_num in seen:
             continue
 
-        # Get coordinates
-        try:
-            # Cambridge may nest location in a point object
-            loc_obj = row.get("location") or {}
-            if isinstance(loc_obj, dict):
-                lat = float(loc_obj.get("latitude") or loc_obj.get("lat") or 0)
-                lng = float(loc_obj.get("longitude") or loc_obj.get("lon") or loc_obj.get("long") or 0)
-            else:
-                lat = float(row.get("lat") or row.get("latitude") or 0)
-                lng = float(row.get("long") or row.get("longitude") or 0)
-        except:
-            continue
-        if not lat or not lng:
-            continue
+        # Use subtype as the offense description (more specific than type)
+        desc     = (row.get("subtype") or row.get("type") or "Incident").strip()
+        street   = (row.get("location") or "").strip().title()
+        occurred = row.get("date_time") or ""
+        detail   = row.get("description") or ""
 
-        desc     = (row.get("event") or row.get("offense") or row.get("nature") or "Incident").strip()
-        street   = (row.get("address") or row.get("street") or row.get("location_street") or "").strip().title()
-        occurred = row.get("date_time") or row.get("occurred_on_date") or ""
-        priority = classify(desc)
+        priority = classify(desc + " " + detail)
         if priority == "p3":
             continue
 
+        lat, lng  = geocode_cambridge(street)
         hotspot, zone = check_hotspot(street)
 
         records.append({
             "incident_number": f"CPD-{case_num}",
             "title":           make_title(desc),
-            "offense_group":   "",
+            "offense_group":   row.get("type", ""),
             "offense_desc":    desc,
             "location":        street or "Cambridge",
             "lat":             lat,
@@ -242,7 +268,7 @@ def process_cambridge(rows, seen):
             "priority":        priority,
             "district":        "CPD",
             "district_name":   "Cambridge PD",
-            "shooting":        "shoot" in desc.lower() or "gun" in desc.lower(),
+            "shooting":        any(k in desc.lower() for k in ["shoot", "gun", "firearm", "weapon"]),
             "gang_hotspot":    hotspot,
             "gang_zone":       zone,
             "occurred_at":     occurred,
