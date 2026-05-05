@@ -1,2 +1,2 @@
+faster-whisper
 requests
-beautifulsoup4
