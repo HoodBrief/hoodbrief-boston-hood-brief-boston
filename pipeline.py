@@ -1,335 +1,785 @@
 """
-Hood Brief Boston — Multi-City Pipeline
-========================================
-Polls Boston BPD and Cambridge CPD incident data via Cloudflare Worker proxy.
-No audio transcription — structured open data only. Zero AI cost.
+Hood Brief Boston — MSP Scanner Pipeline
+==========================================
+Three Broadcastify feeds → faster-whisper → rule-based parser → Supabase
 
-Cities:
-  Boston   — Analyze Boston CKAN API (~2 week lag)
-  Cambridge — Socrata Daily Police Log (daily updates)
+Feeds:
+  26120 — MSP Metro Boston (Troops A & H) — primary
+  3969  — MSP Eastern MA (Essex/Middlesex) — north shore
+  36603 — Boston Area Special Event / Working Incident — major incidents
+
+Cost: $0/month (faster-whisper on Railway Pro, no AI APIs)
 """
 
-import os
-import re
-import time
-import json
-import requests
-import threading
-from datetime import datetime, timezone, timedelta
+import os, re, time, json, tempfile, threading, requests
+from datetime import datetime, timezone
+from faster_whisper import WhisperModel
 
-# ── Config ───────────────────────────────────────────────────────────────────
-SUPABASE_URL  = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY  = os.environ.get("SUPABASE_KEY", "")
-WORKER_URL    = os.environ.get("WORKER_URL", "")
-POLL_INTERVAL = 300   # 5 minutes
-LOOKBACK_DAYS = 30    # days to look back on first run
-ONGOING_DAYS  = 3     # days to look back on subsequent polls
+# ── Config ────────────────────────────────────────────────────────────────────
+SUPABASE_URL     = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY     = os.environ.get("SUPABASE_KEY", "")
+GOOGLE_MAPS_KEY  = os.environ.get("GOOGLE_MAPS_KEY", "")
+CHUNK_SECONDS    = 30
+MAX_RETRIES      = 3
 
-# ── BPD District Info ────────────────────────────────────────────────────────
-DISTRICTS = {
-    "A1":  {"name": "Downtown/Charlestown",    "color": "#6366f1"},
-    "A7":  {"name": "East Boston",             "color": "#8b5cf6"},
-    "A15": {"name": "Charlestown",             "color": "#a78bfa"},
-    "B2":  {"name": "Roxbury",                 "color": "#ec4899"},
-    "B3":  {"name": "Mattapan",                "color": "#f43f5e"},
-    "C6":  {"name": "South Boston",            "color": "#f97316"},
-    "C11": {"name": "Dorchester",              "color": "#fb923c"},
-    "D4":  {"name": "South End/Back Bay",      "color": "#14b8a6"},
-    "D14": {"name": "Brighton/Allston",        "color": "#06b6d4"},
-    "E5":  {"name": "West Roxbury",            "color": "#22c55e"},
-    "E13": {"name": "Hyde Park",               "color": "#84cc16"},
-    "E18": {"name": "Roslindale",              "color": "#eab308"},
-    "CPD": {"name": "Cambridge PD",            "color": "#38bdf8"},
+CITIES = {
+    "metro_boston": {
+        "label":      "Metro Boston, MA",
+        "stream_url": "https://broadcastify.cdnstream1.com/26120",
+        "center":     (42.3601, -71.0589),
+    },
+    "eastern_ma": {
+        "label":      "Eastern MA",
+        "stream_url": "https://broadcastify.cdnstream1.com/3969",
+        "center":     (42.4673, -71.0180),
+    },
+    "special_event": {
+        "label":      "Boston Special Event",
+        "stream_url": "https://broadcastify.cdnstream1.com/36603",
+        "center":     (42.3601, -71.0589),
+    },
 }
 
-# ── Hotspots ─────────────────────────────────────────────────────────────────
-BOSTON_HOTSPOTS = [
-    {"name": "Roxbury",       "streets": ["blue hill ave", "dudley", "washington st", "warren st", "humboldt ave", "dale st"]},
-    {"name": "Mattapan",      "streets": ["morton st", "blue hill ave", "mattapan sq", "river st", "cummins hwy"]},
-    {"name": "Dorchester",    "streets": ["bowdoin st", "columbia rd", "geneva ave", "talbot ave", "washington st", "harvard st"]},
-    {"name": "Hyde Park",     "streets": ["hyde park ave", "fairmount ave", "readville", "cleary sq"]},
-    {"name": "East Boston",   "streets": ["meridian st", "chelsea st", "maverick sq", "paris st"]},
-    {"name": "South Boston",  "streets": ["old colony", "silver st", "east broadway", "west broadway"]},
-    {"name": "Jamaica Plain", "streets": ["egleston sq", "centre st", "jackson sq", "stony brook"]},
-    {"name": "Mission Hill",  "streets": ["huntington ave", "tremont st", "brigham circle"]},
-    {"name": "Area 4",        "streets": ["main st cambridge", "albany st", "columbia st", "mass ave cambridge"]},
+# ── MSP 10-Code Translation ───────────────────────────────────────────────────
+# MSP uses a different system from Memphis — codes 1-22+ not 10-XX format
+# They say "code 15" not "10-15"
+CODES_MSP = {
+    # MSP numeric codes (said as "code N" or just "N")
+    "code-1":  "standby emergency",
+    "code-2":  "phone your barracks",
+    "code-4":  "cruiser out of service",
+    "code-5":  "cruiser in service",
+    "code-6":  "what is your location",
+    "code-7":  "return to barracks",
+    "code-8":  "stopping suspicious vehicle",
+    "code-10": "stolen check",
+    "code-11": "license plate check",
+    "code-14": "missing or wanted",
+    "code-15": "officer in trouble",
+    "code-16": "motor vehicle accident",
+    "code-17": "clear",
+    # Standard 10-codes also used
+    "10-4":   "acknowledged",
+    "10-7":   "out of service",
+    "10-8":   "in service",
+    "10-9":   "repeat",
+    "10-10":  "check for stolen or wanted",
+    "10-11":  "license registration check",
+    "10-13":  "request help",
+    "10-15":  "officer in trouble",
+    "10-20":  "location",
+    "10-33":  "emergency",
+    "10-55":  "car to car traffic",
+    "10-99":  "officer needs help",
+}
+
+def translate_codes(text):
+    result = text
+    for code, meaning in CODES_MSP.items():
+        pattern = rf"\b{re.escape(code)}\b"
+        result = re.sub(pattern, meaning, result, flags=re.IGNORECASE)
+    return re.sub(r" {2,}", " ", result).strip()
+
+# ── MSP-Specific Incident Patterns ───────────────────────────────────────────
+P1_PATTERNS = [
+    # Violent / weapons
+    r"\bshooting\b", r"\bshots?\s+fired\b", r"\bshot\b",
+    r"\bgun\b", r"\bfirearm\b", r"\bweapon\b", r"\bknife\b",
+    r"\bstabbing\b", r"\bstab\b",
+    r"\brobbery\b", r"\bholdup\b", r"\bhold-?up\b",
+    r"\baggravated\s+assault\b",
+    r"\bhomicide\b", r"\bmurder\b",
+    r"\bkidnap\b", r"\bhostage\b",
+    r"\brape\b", r"\bsexual\s+assault\b",
+    r"\bcarjack\b", r"\bhome\s+invasion\b",
+    r"\barmed\b", r"\bmen\s+with\s+guns\b",
+    r"\bperson\s+with\s+a\s+gun\b",
+    r"\bpursuit\b", r"\bvehicle\s+pursuit\b",
+    r"\bfoot\s+pursuit\b", r"\bfleeing\b",
+    r"\bin\s+pursuit\b", r"\bactive\s+pursuit\b",
+    r"\bofficer\s+(in\s+trouble|needs\s+help)\b",
+    r"\bcode[-\s]15\b",
+    r"\b10-99\b", r"\b10-15\b", r"\b10-33\b",
+    r"\bbarricade\b", r"\bactive\s+shooter\b",
+    r"\bswat\b", r"\bperimeter\b",
+    r"\bdead\b", r"\bdeceased\b", r"\bdoa\b",
+    r"\bthreatening\b", r"\bwill\s+shoot\b",
+    r"\bshoot\s+each\s+other\b",
+    r"\bagainst\s+their\s+will\b",
+    r"\blarge\s+fight\b", r"\bbrawl\b",
+    r"\bfight\s+in\s+progress\b",
 ]
 
-def check_hotspot(street):
-    if not street:
-        return False, None
-    sl = street.lower()
+P2_PATTERNS = [
+    r"\bdomestic\b", r"\bburglary\b", r"\bbreak[\-\s]?in\b",
+    r"\baccident\b", r"\bcollision\b", r"\bcrash\b",
+    r"\bmva\b",  # Motor Vehicle Accident — MSP common term
+    r"\bassault\w*\b", r"\bsuspicious\b",
+    r"\btheft\b", r"\blarceny\b", r"\bstolen\b",
+    r"\bvandal\w*\b", r"\bdrug\b", r"\bnarcotic\b",
+    r"\btrespass\w*\b", r"\bharass\w*\b",
+    r"\bmissing\s+person\b", r"\bmissing\s+juvenile\b",
+    r"\battempt\s+to\s+locate\b", r"\batl\b", r"\brunaway\b",
+    r"\bwelfare\s+check\b", r"\bcheck\s+on\b",
+    r"\balarm\b", r"\bburglary\s+alarm\b",
+    r"\btold\s+\w+\s+to\s+leave\b", r"\brefuses\s+to\s+leave\b",
+    r"\bdisorderly\b", r"\bdisturbance\b",
+    r"\bin\s+custody\b", r"\bdetained\b",
+    r"\bwarrant\b", r"\bfelony\b",
+    r"\bshoplifting\b", r"\bmerchandise\b",
+    r"\bsuspect\b",
+]
+
+MEDICAL_PATTERNS = [
+    r"\bmedical\b", r"\bambulance\b", r"\bems\b",
+    r"\bmedic\b",
+    r"\bunconsci\w+\b", r"\bunresponsive\b",
+    r"\boverdos\w+\b", r"\bnot\s+breathing\b",
+    r"\bcardiac\b", r"\bseizure\b",
+    r"\binjur\w+\b",
+    r"\bmedical\s+transport\b",
+    r"\bfacility\b",
+    r"\bmeds\b", r"\bmedication\b",
+    r"\bpsych\w*\b", r"\bmental\b", r"\bptsd\b",
+    r"\bsuicid\w+\b",
+    r"\bharm\s+him\w*\b", r"\bharm\s+her\w*\b",
+    r"\bwanted\s+to\s+harm\b",
+    r"\bcpr\b",
+]
+
+TITLE_MAP = [
+    ("active shooter",      "Active Shooter"),
+    ("shots fired",         "Shots Fired"),
+    ("shooting",            "Shooting"),
+    ("shot",                "Shooting"),
+    ("homicide",            "Homicide"),
+    ("murder",              "Homicide"),
+    ("stabbing",            "Stabbing"),
+    ("aggravated assault",  "Aggravated Assault"),
+    ("robbery",             "Robbery in Progress"),
+    ("hold-up",             "Hold-Up"),
+    ("holdup",              "Hold-Up"),
+    ("carjacking",          "Carjacking"),
+    ("home invasion",       "Home Invasion"),
+    ("armed",               "Armed Subject"),
+    ("person with a gun",   "Armed Person"),
+    ("men with guns",       "Armed Persons"),
+    ("weapon",              "Weapons Call"),
+    ("gun",                 "Weapons Call"),
+    ("kidnap",              "Kidnapping"),
+    ("hostage",             "Hostage Situation"),
+    ("barricade",           "Barricaded Subject"),
+    ("active shooter",      "Active Shooter"),
+    ("pursuit",             "Vehicle Pursuit"),
+    ("foot pursuit",        "Foot Pursuit"),
+    ("fleeing",             "Fleeing Suspect"),
+    ("officer in trouble",  "Officer Needs Help"),
+    ("officer needs help",  "Officer Needs Help"),
+    ("swat",                "SWAT Response"),
+    ("dead",                "Deceased Person"),
+    ("deceased",            "Deceased Person"),
+    ("doa",                 "Dead on Arrival"),
+    ("will shoot",          "Threat to Shoot"),
+    ("threatening",         "Terroristic Threatening"),
+    ("large fight",         "Large Fight"),
+    ("brawl",               "Brawl"),
+    ("fight in progress",   "Fight in Progress"),
+    ("domestic",            "Domestic Disturbance"),
+    ("disturbance",         "Disturbance"),
+    ("arguing",             "Domestic Disturbance"),
+    ("burglary",            "Burglary"),
+    ("break-in",            "Breaking and Entering"),
+    ("mva",                 "Motor Vehicle Accident"),
+    ("accident",            "Motor Vehicle Accident"),
+    ("collision",           "Motor Vehicle Accident"),
+    ("crash",               "Vehicle Crash"),
+    ("theft",               "Theft"),
+    ("larceny",             "Larceny"),
+    ("shoplifting",         "Shoplifting"),
+    ("stolen",              "Stolen Vehicle/Property"),
+    ("vandalism",           "Vandalism"),
+    ("drug",                "Drug Activity"),
+    ("missing juvenile",    "Missing Juvenile"),
+    ("missing person",      "Missing Person"),
+    ("attempt to locate",   "Attempt to Locate"),
+    ("atl",                 "Attempt to Locate"),
+    ("runaway",             "Runaway"),
+    ("welfare check",       "Welfare Check"),
+    ("alarm",               "Alarm Response"),
+    ("suspicious",          "Suspicious Person/Vehicle"),
+    ("trespassing",         "Trespassing"),
+    ("warrant",             "Warrant Check"),
+    ("in custody",          "Subject in Custody"),
+    ("suicide",             "Suicide Call"),
+    ("suicidal",            "Suicidal Subject"),
+    ("harm himself",        "Self-Harm Call"),
+    ("harm herself",        "Self-Harm Call"),
+    ("overdose",            "Overdose"),
+    ("unconscious",         "Unconscious Person"),
+    ("unresponsive",        "Unresponsive Person"),
+    ("cardiac",             "Cardiac Emergency"),
+    ("seizure",             "Seizure"),
+    ("cpr",                 "CPR in Progress"),
+    ("ambulance",           "Medical Emergency"),
+    ("medical",             "Medical Call"),
+    ("medic",               "Medical Call"),
+    ("mental",              "Mental Health Call"),
+    ("psych",               "Mental Health Call"),
+    ("ptsd",                "Mental Health Call"),
+]
+
+NOISE_PHRASES = [
+    "buzzcutting his way to a small fortune",
+    "every time he cuts his own hair",
+    "sound of jack", "sound of claire",
+    "cooking dinner at home",
+    "fraud alert from wells fargo",
+    "police scanner radio dispatch",
+    "all feels right in the world",
+    "15-year-old harper", "vintage rock t-shirt",
+]
+
+# ── Boston Metro Neighborhoods / Hotspots ────────────────────────────────────
+BOSTON_HOTSPOTS = [
+    {"name": "Roxbury",       "streets": ["blue hill", "dudley st", "warren st", "humboldt", "dale st", "washington st roxbury"]},
+    {"name": "Mattapan",      "streets": ["morton st", "mattapan sq", "river st", "cummins hwy", "blue hill ave mattapan"]},
+    {"name": "Dorchester",    "streets": ["bowdoin st", "columbia rd", "geneva ave", "talbot ave", "harvard st dorchester"]},
+    {"name": "Hyde Park",     "streets": ["hyde park ave", "fairmount ave", "cleary sq"]},
+    {"name": "East Boston",   "streets": ["meridian st", "chelsea st", "maverick sq", "paris st"]},
+    {"name": "South Boston",  "streets": ["old colony", "silver st", "east broadway", "west broadway", "old harbor"]},
+    {"name": "Jamaica Plain", "streets": ["egleston sq", "jackson sq", "stony brook"]},
+    {"name": "Mission Hill",  "streets": ["huntington ave mission", "brigham circle"]},
+    {"name": "Lynn",          "streets": ["lynn", "western ave lynn", "union st lynn"]},
+    {"name": "Revere",        "streets": ["revere beach", "broadway revere", "american legion"]},
+    {"name": "Chelsea",       "streets": ["chelsea", "broadway chelsea", "washington ave chelsea"]},
+]
+
+def check_hotspot(text):
+    tl = (text or "").lower()
     for zone in BOSTON_HOTSPOTS:
-        if any(s in sl for s in zone["streets"]):
+        if any(s in tl for s in zone["streets"]):
             return True, zone["name"]
     return False, None
 
-# ── Priority Classification ───────────────────────────────────────────────────
-P1_KEYWORDS = [
-    "homicide", "murder", "manslaughter", "shooting", "shot",
-    "robbery", "armed", "weapon", "firearm", "gun", "knife",
-    "assault with", "aggravated assault", "kidnap", "hostage",
-    "rape", "sexual assault", "sex offense", "home invasion", "carjack",
-]
-MEDICAL_KEYWORDS = [
-    "medical", "ambulance", "overdose", "unconscious", "unresponsive",
-    "suicide", "self harm", "mental health", "psychiatric",
-]
-P2_DESC_KEYWORDS = [
-    "burglary", "larceny", "vandal", "drug", "narcotic",
-    "trespass", "missing", "assault", "threat", "harass",
-    "stolen", "investigate", "restraining", "disorderly",
-    "robbery", "fraud", "forgery", "weapon", "firearm",
-    "auto theft", "motor vehicle", "breaking", "entering",
-    "shoplifting", "warrant", "arrest", "disturbance",
-    "property", "damage", "violation", "offenses",
-    "val -", "m/v", "b&e", "uumv", "neighbor", "noise",
-    "unwanted", "harassment", "fight", "argument", "domestic",
+# ── MSP Barracks / District Detection ────────────────────────────────────────
+# Based on address patterns heard on scanner
+BARRACKS = {
+    "H1": {"name": "Government Center",  "color": "#6366f1"},
+    "H2": {"name": "South Boston",       "color": "#ec4899"},
+    "H3": {"name": "Brighton",           "color": "#14b8a6"},
+    "H4": {"name": "Dedham",             "color": "#f97316"},
+    "H6": {"name": "Milton",             "color": "#a855f7"},
+    "H7": {"name": "Norwood",            "color": "#22c55e"},
+    "H8": {"name": "Weston/Mass Pike",   "color": "#eab308"},
+    "A2": {"name": "Newbury/North Shore","color": "#06b6d4"},
+    "A4": {"name": "Concord/Metrowest",  "color": "#38bdf8"},
+    "A5": {"name": "Revere/East",        "color": "#f43f5e"},
+    "A6": {"name": "Medford/North",      "color": "#84cc16"},
+    "SE": {"name": "Special Event",      "color": "#ef4444"},
+}
+
+# ── Whisper Model ─────────────────────────────────────────────────────────────
+_whisper_model = None
+def get_whisper_model():
+    global _whisper_model
+    if _whisper_model is None:
+        print("[Whisper] Loading faster-whisper small model...")
+        _whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
+        print("[Whisper] Model ready")
+    return _whisper_model
+
+# ── Transcription ─────────────────────────────────────────────────────────────
+def transcribe(audio_bytes):
+    tmp_path = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                f.write(audio_bytes)
+                tmp_path = f.name
+            model = get_whisper_model()
+            segments, _ = model.transcribe(
+                tmp_path,
+                language="en",
+                beam_size=5,
+                temperature=0.0,
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 300, "threshold": 0.6},
+                initial_prompt=(
+                    "Massachusetts State Police scanner dispatch. "
+                    "Codes like code-15, 10-4, 10-99. "
+                    "Unit numbers, trooper designations. "
+                    "Boston metro street addresses and Massachusetts towns."
+                ),
+            )
+            text = " ".join(s.text for s in segments).strip()
+            if text:
+                words = text.lower().split()
+                if len(words) > 6 and len(set(words)) / len(words) < 0.25:
+                    print("  [Whisper] Repetition detected — rejecting")
+                    return ""
+                if any(m in text.lower() for m in NOISE_PHRASES):
+                    print("  [Whisper] Known hallucination — rejecting")
+                    return ""
+            return text
+        except Exception as e:
+            print(f"  Whisper attempt {attempt+1} failed: {e}")
+            time.sleep(2)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try: os.unlink(tmp_path)
+                except: pass
+    return ""
+
+# ── Audio Capture ─────────────────────────────────────────────────────────────
+def capture_chunk(stream_url, seconds):
+    for attempt in range(MAX_RETRIES):
+        try:
+            r = requests.get(stream_url, stream=True, timeout=seconds + 10)
+            chunks = []
+            start = time.time()
+            for chunk in r.iter_content(chunk_size=4096):
+                chunks.append(chunk)
+                if time.time() - start >= seconds:
+                    break
+            return b"".join(chunks)
+        except Exception as e:
+            print(f"  Audio capture attempt {attempt+1} failed: {e}")
+            time.sleep(3)
+    return b""
+
+# ── Parser ────────────────────────────────────────────────────────────────────
+BAD_LOCATIONS = [
+    "this thing", "claim", "show down", "the area", "the scene",
+    "location", "address", "service", "station", "barracks",
+    "dispatch", "check", "unit", "trooper", "alpha", "bravo",
+    "charlie", "delta", "echo", "foxtrot", "tango", "victor",
+    "over the phone", "by phone", "via phone", "on the phone",
+    "driver needs", "passenger side",
+    "north", "south", "east", "west",
+    "residence", "complainant", "front", "inside", "outside",
+    "the road", "the street", "roadway", "highway",
 ]
 
-def classify(desc, shooting="0", ucr=""):
-    desc_l = (desc or "").lower()
-    if str(shooting) in ("Y", "1"): return "p1"
-    if "part one" in (ucr or "").lower(): return "p1"
-    if any(k in desc_l for k in P1_KEYWORDS): return "p1"
-    if any(k in desc_l for k in MEDICAL_KEYWORDS): return "medical"
-    if any(k in desc_l for k in P2_DESC_KEYWORDS): return "p2"
-    if len(desc_l) > 3: return "p2"
-    return "p3"
+LOCATION_PATTERNS = [
+    # Numbered address + street with suffix
+    r"(?:at|on|to|near)\s+(\d+\s+[\w\s]{2,35}?\s+(?:ave(?:nue)?|st(?:reet)?|rd|road|blvd|boulevard|dr(?:ive)?|ln|lane|way|cir(?:cle)?|ct|court|pl(?:ace)?|pkwy|parkway|hwy|highway|pike|turnpike))",
+    # Intersection
+    r"([\w\s]+(?:ave(?:nue)?|st(?:reet)?|rd|road|blvd|dr(?:ive)?|ln|way)\s+and\s+[\w\s]{3,25})",
+    # Numbered address no suffix
+    r"(?:at|on|to|near|of)\s+(\d+\s+[A-Z][\w\s]{2,25})",
+    # Any numbered address
+    r"(\d{3,5}\s+[A-Z][\w]{3,20})",
+    # Interstate / highway
+    r"\b(interstate\s+\d+|i-\d+|route\s+\d+|rte\s+\d+|mass\s+pike|i-90|i-93|i-95|route\s+128|route\s+1)\b",
+    # Bare street name with suffix
+    r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?\s+(?:road|street|avenue|drive|lane|boulevard|way|circle|court|place|parkway|pike))\b",
+    # MA towns on scanner
+    r"\b(boston|cambridge|somerville|quincy|braintree|dedham|newton|waltham|medford|malden|everett|revere|chelsea|lynn|peabody|salem|beverly|danvers|andover|lowell|lawrence)\b",
+]
 
-def make_title(desc, shooting="0"):
-    if str(shooting) in ("Y", "1"): return "Shooting"
-    return (desc or "Incident").strip().title()
+UNIT_PATTERNS = [
+    r"\b(h[\-]?\d+)\b",   # H-troop units
+    r"\b(a[\-]?\d+)\b",   # A-troop units
+    r"\b(\d{3,4})\s+(?:en\s+route|responding|on\s+scene|copy)\b",
+]
+
+def parse_incident(text, city):
+    tl = text.lower().strip()
+    if len(tl) < 15:
+        return {"incident": False}
+
+    noise_hits = sum(1 for p in NOISE_PHRASES if p in tl)
+    has_signal = (
+        any(re.search(p, tl, re.I) for p in P1_PATTERNS) or
+        any(re.search(p, tl, re.I) for p in P2_PATTERNS) or
+        any(re.search(p, tl, re.I) for p in MEDICAL_PATTERNS)
+    )
+    if noise_hits >= 1 and not has_signal:
+        return {"incident": False}
+
+    # Priority
+    if any(re.search(p, tl, re.I) for p in P1_PATTERNS):
+        priority = "p1"
+    elif any(re.search(p, tl, re.I) for p in MEDICAL_PATTERNS):
+        priority = "medical"
+    elif any(re.search(p, tl, re.I) for p in P2_PATTERNS):
+        priority = "p2"
+    else:
+        print("  Routine call (P3) — skipping")
+        return {"incident": False}
+
+    if priority == "p1" and len(tl.split()) < 6:
+        print("  P1 too short — skipping")
+        return {"incident": False}
+
+    # Property crimes can't be Medical
+    PROPERTY = ["shoplifting","burglary","larceny","theft","vandal","trespass","stolen"]
+    if priority == "medical" and any(k in tl for k in PROPERTY):
+        priority = "p1" if any(re.search(p,tl,re.I) for p in P1_PATTERNS) else "p2"
+
+    # Title
+    title = None
+    for keyword, label in TITLE_MAP:
+        if keyword in tl:
+            title = label
+            break
+    if not title:
+        title = {"p1":"Priority 1 Call","p2":"Priority 2 Call","medical":"Medical Call"}.get(priority,"Incident")
+
+    # Location
+    location = None
+    for pattern in LOCATION_PATTERNS:
+        m = re.search(pattern, text, re.I)
+        if m:
+            candidate = m.group(1).strip().title()
+            if re.match(r"^\d{3,4}\s+hours?$", candidate, re.I): continue
+            if re.match(r"^(19|20)\d{2}\s+\w+$", candidate, re.I): continue
+            if re.match(r"^\d+\s+(North|South|East|West)$", candidate, re.I): continue
+            if candidate.lower().strip() in BAD_LOCATIONS: continue
+            if any(phrase in candidate.lower() for phrase in ["over the phone","by phone","on scene"]): continue
+            if len(candidate) > 4:
+                location = candidate
+                break
+
+    if not location:
+        return {"incident": False}
+
+    if location.lower().strip() in BAD_LOCATIONS:
+        return {"incident": False}
+
+    # Unit
+    unit = None
+    for pattern in UNIT_PATTERNS:
+        m = re.search(pattern, tl, re.I)
+        if m:
+            unit = m.group(1).strip().upper()
+            break
+
+    return {
+        "incident": True,
+        "title":    title,
+        "location": location,
+        "priority": priority,
+        "unit":     unit or "",
+    }
+
+# ── Geocoding ─────────────────────────────────────────────────────────────────
+BOSTON_LANDMARKS = {
+    "fenway park":          (42.3467, -71.0972),
+    "td garden":            (42.3662, -71.0621),
+    "logan airport":        (42.3656, -71.0096),
+    "south station":        (42.3520, -71.0552),
+    "north station":        (42.3662, -71.0621),
+    "faneuil hall":         (42.3600, -71.0560),
+    "government center":    (42.3597, -71.0590),
+    "copley square":        (42.3496, -71.0773),
+    "kenmore square":       (42.3483, -71.0970),
+    "harvard square":       (42.3732, -71.1190),
+    "central square":       (42.3651, -71.1039),
+    "kendall square":       (42.3626, -71.0843),
+    "porter square":        (42.3884, -71.1194),
+    "dudley square":        (42.3231, -71.0836),
+    "mattapan square":      (42.2676, -71.0920),
+    "egleston square":      (42.3121, -71.1015),
+    "jackson square":       (42.3203, -71.1073),
+    "brigham and women":    (42.3356, -71.1067),
+    "boston medical":       (42.3355, -71.0726),
+    "mass general":         (42.3636, -71.0687),
+    "beth israel":          (42.3378, -71.1064),
+    "children's hospital":  (42.3378, -71.1064),
+    "tufts medical":        (42.3494, -71.0627),
+    "revere beach":         (42.4077, -70.9925),
+    "lynn common":          (42.4673, -70.9495),
+    "chelsea square":       (42.3918, -71.0328),
+    "maverick square":      (42.3706, -71.0393),
+    "orient heights":       (42.3817, -71.0048),
+    "mass pike":            (42.3467, -71.1800),
+    "route 128":            (42.2626, -71.0200),
+    "i-93":                 (42.3601, -71.0589),
+    "i-95":                 (42.3833, -71.2333),
+    "tobin bridge":         (42.3986, -71.0617),
+    "zakim bridge":         (42.3673, -71.0646),
+    "1010":                 (42.3636, -71.0687),
+}
+
+def check_landmark(text):
+    tl = text.lower()
+    for kw, coords in BOSTON_LANDMARKS.items():
+        if kw in tl:
+            return coords
+    return None
+
+def in_boston_metro(lat, lng):
+    """Boston metro bounding box — generous to cover all MSP Troop A & H territory."""
+    return 41.8 <= lat <= 42.9 and -71.9 <= lng <= -70.5
+
+def geocode_location(location_text):
+    if not location_text:
+        return None, None
+
+    # Landmark check
+    lm = check_landmark(location_text)
+    if lm:
+        return lm, None
+
+    # MA 911 DB (Supabase) — same prefix-search approach as Memphis
+    try:
+        normalized = location_text.strip().upper()
+        clean = re.sub(r'\s+(BOSTON|CAMBRIDGE|QUINCY|LYNN|REVERE|CHELSEA|MA|MASSACHUSETTS).*$', '', normalized).strip()
+        clean = re.sub(
+            r'\s+(AVE|ST|RD|BLVD|DR|LN|WAY|CIR|CT|PL|PKWY|HWY|ROAD|'
+            r'AVENUE|STREET|DRIVE|LANE|CIRCLE|COURT|PLACE|PARKWAY|HIGHWAY|PIKE|TURNPIKE)$',
+            '', clean
+        ).strip()
+        # Direction normalization
+        clean = re.sub(r'\bNORTH\b', 'N', clean)
+        clean = re.sub(r'\bSOUTH\b', 'S', clean)
+        clean = re.sub(r'\bEAST\b',  'E', clean)
+        clean = re.sub(r'\bWEST\b',  'W', clean)
+
+        if ' AND ' in clean:
+            parts = [p.strip() for p in clean.split(' AND ', 1)]
+            s1 = re.sub(r'^\d+\s+', '', parts[0]).strip()
+            s2 = re.sub(r'^\d+\s+', '', parts[1]).strip()
+
+            r1 = ma_db_lookup(s1)
+            r2 = ma_db_lookup(s2)
+
+            if r1 and r2:
+                label = f"Intersection: {s1.title()} & {s2.title()}"
+                print(f"  Geocoded (MA 911 DB intersection): {label}")
+                return (r1[0], r1[1]), label
+            elif r1:
+                return (r1[0], r1[1]), None
+            elif r2:
+                return (r2[0], r2[1]), None
+        else:
+            result = ma_db_lookup(clean)
+            if result:
+                print(f"  Geocoded (MA 911 DB): {clean}")
+                return (result[0], result[1]), None
+    except Exception as e:
+        print(f"  [MA 911 DB] Error: {e}")
+
+    # Google fallback
+    if GOOGLE_MAPS_KEY:
+        coords = google_geocode(location_text)
+        if coords:
+            return coords, None
+
+    print(f"  Location not verified — skipping: {location_text}")
+    return None, None
+
+def ma_db_lookup(query):
+    """
+    Prefix range search on ma_addresses Supabase table.
+    Boston SAM addresses have lat/lng — use directly.
+    Town addresses (no lat/lng) — verify exists then Google geocode.
+    Returns (lat, lng, town) or None.
+    """
+    query = query.strip().upper()
+    if not query or len(query) < 3:
+        return None
+    sentinel = query[:-1] + chr(ord(query[-1]) + 1)
+    try:
+        from urllib.parse import quote
+        q_enc = quote(query, safe='')
+        s_enc = quote(sentinel, safe='')
+        url = (
+            f"{SUPABASE_URL}/rest/v1/ma_addresses"
+            f"?address=gte.{q_enc}&address=lt.{s_enc}"
+            f"&select=lat%2Clng%2Ctown%2Czip&limit=1&order=address"
+        )
+        r = requests.get(url, headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        }, timeout=10)
+        r.raise_for_status()
+        rows = r.json()
+        if rows:
+            row = rows[0]
+            lat = row.get("lat")
+            lng = row.get("lng")
+            town = row.get("town", "")
+            # Boston SAM addresses have coordinates — use directly
+            if lat and lng:
+                lat, lng = float(lat), float(lng)
+                if in_boston_metro(lat, lng):
+                    return lat, lng, town
+            # Town addresses verified but no coords — Google geocode with town
+            elif GOOGLE_MAPS_KEY and town:
+                coords = google_geocode(f"{query}, {town} MA")
+                if coords:
+                    return coords[0], coords[1], town
+    except Exception as e:
+        print(f"  [MA 911 DB] Error: {e}")
+    return None
+
+def google_geocode(query):
+    if not GOOGLE_MAPS_KEY or not query or len(query) < 4:
+        return None
+    try:
+        r = requests.get(
+            "https://maps.googleapis.com/maps/api/geocode/json",
+            params={"address": f"{query}, Boston MA", "key": GOOGLE_MAPS_KEY},
+            timeout=10,
+        )
+        data = r.json()
+        if data.get("status") == "OK":
+            loc = data["results"][0]["geometry"]["location"]
+            lat, lng = float(loc["lat"]), float(loc["lng"])
+            # Reject city center fallback
+            if abs(lat - 42.3601) < 0.01 and abs(lng - (-71.0589)) < 0.01:
+                print(f"  [Google] City center fallback rejected: {query}")
+                return None
+            if in_boston_metro(lat, lng):
+                print(f"  Geocoded (Google): {query} -> {lat}, {lng}")
+                return lat, lng
+    except Exception as e:
+        print(f"  [Google] Error: {e}")
+    return None
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
-def sb_upsert(rows):
+def sb_get(path, params=None):
+    from urllib.parse import quote
+    base = f"{SUPABASE_URL}/rest/v1/{path}"
+    headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+    if not params:
+        r = requests.get(base, headers=headers, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    parts = []
+    for k, v in params.items():
+        parts.append(f"{quote(str(k),safe='')}={quote(str(v),safe='*')}")
+    r = requests.get(f"{base}?{'&'.join(parts)}", headers=headers, timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+def save_incident(parsed, city, transcript_raw, transcript_translated, hotspot, zone, feed_label):
+    data = {
+        "city":             city,
+        "feed":             feed_label,
+        "transcript":       transcript_translated[:500],
+        "transcript_raw":   transcript_raw[:500],
+        "title":            parsed["title"],
+        "location":         parsed["location"],
+        "lat":              parsed["lat"],
+        "lng":              parsed["lng"],
+        "unit":             parsed.get("unit",""),
+        "priority":         parsed["priority"],
+        "gang_hotspot":     hotspot,
+        "gang_zone":        zone,
+        "created_at":       datetime.now(timezone.utc).isoformat(),
+    }
     r = requests.post(
-        f"{SUPABASE_URL}/rest/v1/boston_incidents",
+        f"{SUPABASE_URL}/rest/v1/boston_scanner_incidents",
         headers={
             "apikey":        SUPABASE_KEY,
             "Authorization": f"Bearer {SUPABASE_KEY}",
             "Content-Type":  "application/json",
-            "Prefer":        "resolution=ignore-duplicates,return=minimal",
+            "Prefer":        "return=minimal",
         },
-        json=rows,
+        json=data,
         timeout=15,
     )
-    if r.status_code not in (200, 201, 204) and r.status_code != 409:
-        print(f"  [Supabase] {r.status_code}: {r.text[:150]}")
+    if r.status_code not in (200, 201, 204):
+        print(f"  [Supabase] Error {r.status_code}: {r.text[:150]}")
 
-# ── Worker fetch ──────────────────────────────────────────────────────────────
-def fetch_boston(since_dt):
-    since_str = since_dt.strftime("%Y-%m-%d %H:%M:%S")
-    r = requests.get(WORKER_URL, params={"city": "boston", "since": since_str, "limit": 200}, timeout=25)
-    r.raise_for_status()
-    data = r.json()
-    if not data.get("success"):
-        print(f"  [Boston API] Error: {data.get('error', {}).get('message','unknown')}")
-        return []
-    return data["result"]["records"]
+# ── City Runner ───────────────────────────────────────────────────────────────
+def run_feed(feed_key):
+    info       = CITIES[feed_key]
+    stream_url = info["stream_url"]
+    label      = info["label"]
+    prev_transcript = ""
+    last_saved_key  = ""
+    last_saved_time = 0
 
-def fetch_cambridge(since_dt):
-    since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%S")
-    r = requests.get(WORKER_URL, params={"city": "cambridge", "since": since_str, "limit": 200}, timeout=25)
-    r.raise_for_status()
-    data = r.json()
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict) and "error" in data:
-        print(f"  [Cambridge API] Error: {data['error']}")
-        return []
-    return data if isinstance(data, list) else []
-
-# ── Process Boston incidents ──────────────────────────────────────────────────
-def process_boston(rows, seen):
-    saved = 0
-    records = []
-    for row in rows:
-        inc_num = row.get("INCIDENT_NUMBER", "")
-        if not inc_num or inc_num in seen:
-            continue
-        try:
-            lat = float(row.get("Lat") or 0)
-            lng = float(row.get("Long") or 0)
-        except:
-            continue
-        if not lat or not lng or lat == -1:
-            continue
-
-        desc     = (row.get("OFFENSE_DESCRIPTION") or "").strip()
-        shooting = str(row.get("SHOOTING") or "0")
-        ucr      = row.get("UCR_PART") or ""
-        priority = classify(desc, shooting, ucr)
-        if priority == "p3":
-            continue
-
-        district  = (row.get("DISTRICT") or "").strip().upper()
-        dist_info = DISTRICTS.get(district, {"name": district or "Unknown", "color": "#6b7d96"})
-        street    = (row.get("STREET") or "").strip().title()
-        hotspot, zone = check_hotspot(street)
-        occurred  = row.get("OCCURRED_ON_DATE", "")
-
-        records.append({
-            "incident_number": f"BPD-{inc_num}",
-            "title":           make_title(desc, shooting),
-            "offense_group":   row.get("OFFENSE_CODE_GROUP") or "",
-            "offense_desc":    desc,
-            "location":        street,
-            "lat":             lat,
-            "lng":             lng,
-            "priority":        priority,
-            "district":        district,
-            "district_name":   dist_info["name"],
-            "shooting":        shooting in ("Y", "1"),
-            "gang_hotspot":    hotspot,
-            "gang_zone":       zone,
-            "occurred_at":     occurred,
-            "created_at":      datetime.now(timezone.utc).isoformat(),
-        })
-        seen.add(inc_num)
-        saved += 1
-        if len(records) >= 50:
-            sb_upsert(records)
-            records = []
-
-    if records:
-        sb_upsert(records)
-    return saved
-
-# ── Process Cambridge incidents ───────────────────────────────────────────────
-# Cambridge geocoder — street name to coords via simple lookup
-# Cambridge is small enough that street-level geocoding via Google is fine
-CAMBRIDGE_STREETS = {
-    "massachusetts ave": (42.3736, -71.1097),
-    "main st":           (42.3626, -71.0843),
-    "broadway":          (42.3662, -71.1004),
-    "cambridge st":      (42.3675, -71.1043),
-    "harvard sq":        (42.3732, -71.1190),
-    "central sq":        (42.3651, -71.1039),
-    "inman sq":          (42.3731, -71.0994),
-    "porter sq":         (42.3884, -71.1194),
-    "kendall sq":        (42.3626, -71.0843),
-    "mount auburn st":   (42.3736, -71.1343),
-    "fresh pond":        (42.3876, -71.1485),
-    "huron ave":         (42.3812, -71.1352),
-    "concord ave":       (42.3848, -71.1218),
-    "garden st":         (42.3782, -71.1173),
-    "brattle st":        (42.3773, -71.1237),
-    "clinton st":        (42.3651, -71.1039),
-    "western ave":       (42.3626, -71.1194),
-    "memorial dr":       (42.3601, -71.0900),
-}
-CAMBRIDGE_CENTER = (42.3736, -71.1097)
-
-def geocode_cambridge(street):
-    """Return (lat, lng) for a Cambridge street name."""
-    if not street:
-        return CAMBRIDGE_CENTER
-    sl = street.lower()
-    for known, coords in CAMBRIDGE_STREETS.items():
-        if known in sl:
-            return coords
-    return CAMBRIDGE_CENTER
-
-def process_cambridge(rows, seen):
-    """
-    Cambridge Daily Police Log fields:
-      id, date_time, type, subtype, location, description, last_updated
-    No lat/lng provided — we geocode from street name.
-    """
-    saved = 0
-    records = []
-    for row in rows:
-        case_num = str(row.get("id") or "")
-        if not case_num or case_num in seen:
-            continue
-
-        # Use subtype as the offense description (more specific than type)
-        desc     = (row.get("subtype") or row.get("type") or "Incident").strip()
-        street   = (row.get("location") or "").strip().title()
-        occurred = row.get("date_time") or ""
-        detail   = row.get("description") or ""
-
-        priority = classify(desc + " " + detail)
-        if priority == "p3":
-            continue
-
-        lat, lng  = geocode_cambridge(street)
-        hotspot, zone = check_hotspot(street)
-
-        records.append({
-            "incident_number": f"CPD-{case_num}",
-            "title":           make_title(desc),
-            "offense_group":   row.get("type", ""),
-            "offense_desc":    desc,
-            "location":        street or "Cambridge",
-            "lat":             lat,
-            "lng":             lng,
-            "priority":        priority,
-            "district":        "CPD",
-            "district_name":   "Cambridge PD",
-            "shooting":        any(k in desc.lower() for k in ["shoot", "gun", "firearm", "weapon"]),
-            "gang_hotspot":    hotspot,
-            "gang_zone":       zone,
-            "occurred_at":     occurred,
-            "created_at":      datetime.now(timezone.utc).isoformat(),
-        })
-        seen.add(case_num)
-        saved += 1
-        if len(records) >= 50:
-            sb_upsert(records)
-            records = []
-
-    if records:
-        sb_upsert(records)
-    return saved
-
-# ── Main loop ─────────────────────────────────────────────────────────────────
-def run():
-    print("[Hood Brief Boston] Pipeline started — polling every 5 minutes...")
-    seen      = set()
-    first_run = True
+    print(f"[{label}] Started — capturing {CHUNK_SECONDS}s chunks...")
 
     while True:
         try:
-            days = LOOKBACK_DAYS if first_run else ONGOING_DAYS
-            since = datetime.now(timezone.utc) - timedelta(days=days)
-            first_run = False
+            audio = capture_chunk(stream_url, CHUNK_SECONDS)
+            if len(audio) < 1000:
+                print(f"[{label}] Audio too small — skipping")
+                time.sleep(5)
+                continue
 
-            # Boston
-            boston_rows = fetch_boston(since)
-            boston_saved = process_boston(boston_rows, seen)
-            if boston_saved:
-                print(f"[Boston] Saved {boston_saved} incidents")
-            else:
-                print("[Boston] No new incidents")
+            transcript_raw = transcribe(audio)
+            if not transcript_raw or len(transcript_raw.strip()) < 8:
+                print(f"[{label}] No speech detected — skipping")
+                prev_transcript = ""
+                continue
 
-            # Cambridge
-            cambridge_rows = fetch_cambridge(since)
-            cambridge_saved = process_cambridge(cambridge_rows, seen)
-            if cambridge_saved:
-                print(f"[Cambridge] Saved {cambridge_saved} incidents")
-            else:
-                print("[Cambridge] No new incidents")
+            print(f"[{label}] Raw: {transcript_raw[:120]}...")
+            transcript_translated = translate_codes(transcript_raw)
+            if transcript_translated != transcript_raw:
+                print(f"[{label}] Translated: {transcript_translated[:120]}...")
+
+            combined = f"{prev_transcript} {transcript_translated}".strip() if prev_transcript else transcript_translated
+            prev_transcript = transcript_translated
+
+            parsed = parse_incident(combined, feed_key)
+            if not parsed.get("incident"):
+                print(f"[{label}] No incident detected — skipping")
+                continue
+
+            priority = parsed["priority"]
+            location = parsed["location"]
+
+            coords, intersection_label = geocode_location(location)
+            if coords is None:
+                print(f"[{label}] Location not verifiable — not posting")
+                continue
+
+            lat, lng = coords
+            parsed["lat"] = lat
+            parsed["lng"] = lng
+            if intersection_label:
+                parsed["location"] = intersection_label
+
+            hotspot, zone = check_hotspot(combined)
+
+            # Dedup
+            dedup_key = f"{parsed['location']}|{priority}"
+            if dedup_key == last_saved_key and (time.time() - last_saved_time) < 180:
+                print(f"[{label}] Duplicate suppressed")
+                prev_transcript = ""
+                continue
+
+            save_incident(parsed, feed_key, transcript_raw, transcript_translated, hotspot, zone, label)
+            last_saved_key  = dedup_key
+            last_saved_time = time.time()
+            prev_transcript = ""
+            print(f"[{label}] ✅ Saved: [{priority.upper()}] {parsed['title']} @ {parsed['location']}")
 
         except Exception as e:
-            print(f"[Poll error] {e}")
+            print(f"[{label}] Error: {e}")
+            time.sleep(5)
 
-        time.sleep(POLL_INTERVAL)
-
-# ── Entry ─────────────────────────────────────────────────────────────────────
+# ── Entry Point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("╔══════════════════════════════════════════╗")
-    print("║  Hood Brief Boston — Pipeline Starting   ║")
-    print("║  Boston + Cambridge — Multi-City         ║")
+    print("║  Hood Brief Boston — MSP Scanner         ║")
+    print("║  3 Feeds · Troops A & H · Special Event  ║")
     print("╚══════════════════════════════════════════╝")
 
     errors = []
     if not SUPABASE_URL: errors.append("SUPABASE_URL not set")
     if not SUPABASE_KEY: errors.append("SUPABASE_KEY not set")
-    if not WORKER_URL:   errors.append("WORKER_URL not set")
     if errors:
         for e in errors: print(f"  ❌ {e}")
         exit(1)
 
-    run()
+    threads = []
+    for feed_key in CITIES:
+        t = threading.Thread(target=run_feed, args=(feed_key,), daemon=True, name=feed_key)
+        t.start()
+        threads.append(t)
+        print(f"  ✓ Started: {CITIES[feed_key]['label']}")
+
+    print("All feeds running.")
+    while True:
+        time.sleep(60)
+        alive = [t.name for t in threads if t.is_alive()]
+        dead  = [t.name for t in threads if not t.is_alive()]
+        print(f"[Heartbeat] Active: {', '.join(alive) or 'none'} | DEAD: {', '.join(dead) or 'none'}")
