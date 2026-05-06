@@ -26,7 +26,8 @@ MAX_RETRIES      = 3
 # When tokens expire, update these variables in Railway (no code change needed)
 # Get fresh URLs from: broadcastify.com/listen/feed/FEEDID -> DevTools -> Network -> .mp3
 # BPD worker URL — Cloudflare Worker proxying RapidSOS WebSocket
-BPD_WORKER_URL = os.environ.get("BPD_WORKER_URL", "")
+BPD_WORKER_URL  = os.environ.get("BPD_WORKER_URL", "")
+RAPIDSOS_COOKIE  = os.environ.get("RAPIDSOS_COOKIE", "")
 
 CITIES = {
     "bpd_scan": {
