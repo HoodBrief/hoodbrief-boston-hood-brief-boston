@@ -75,7 +75,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 
 /* ── SEARCH ── */
 #search-bar{
-  position:fixed;top:56px;left:0;right:0;z-index:999;
+  position:fixed;top:78px;left:0;right:0;z-index:999;
   background:rgba(8,12,24,0.95);border-bottom:1px solid var(--border);
   padding:8px 16px;display:flex;gap:8px;
 }
@@ -102,8 +102,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
   background:rgba(8,12,24,0.95);border-bottom:1px solid var(--border);
   padding:5px 16px;display:flex;gap:5px;overflow-x:auto;
 }
-#filter-type{top:104px;}
-#filter-feed{top:138px;}
+#filter-type{top:126px;}
+#filter-feed{top:160px;}
 .chip{
   font-family:var(--mono);font-size:10px;font-weight:500;
   border:1px solid var(--border);color:var(--muted);
@@ -119,7 +119,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .chip.active[data-feed]{border-color:var(--msp-gold);color:var(--msp-gold);background:rgba(200,168,75,0.1);}
 
 /* ── MAIN LAYOUT ── */
-#main{position:fixed;top:172px;left:0;right:0;bottom:0;display:flex;}
+#main{position:fixed;top:194px;left:0;right:0;bottom:0;display:flex;}
 #feed{width:340px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--border);}
 #feed::-webkit-scrollbar{width:2px;}
 #feed::-webkit-scrollbar-thumb{background:var(--border);}
@@ -149,6 +149,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .tag-med{background:rgba(45,140,240,0.15);color:var(--med);border:1px solid rgba(45,140,240,0.3);}
 .tag-gang{background:rgba(232,57,74,0.12);color:#ff8090;border:1px solid rgba(232,57,74,0.25);}
 .tag-feed{background:rgba(26,79,160,0.15);color:#6b9ff0;border:1px solid rgba(26,79,160,0.3);}
+.tag-delay{background:rgba(200,168,75,0.1);color:rgba(200,168,75,0.7);border:1px solid rgba(200,168,75,0.2);}
 .inc-time{float:right;font-family:var(--mono);font-size:10px;color:var(--muted);}
 .inc-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px;line-height:1.3;}
 .incident.is-gang .inc-title{color:#ff8090;}
@@ -178,7 +179,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 }
 
 /* ── TOAST ── */
-#toast-container{position:fixed;top:180px;right:16px;z-index:2000;display:flex;flex-direction:column;gap:6px;}
+#toast-container{position:fixed;top:202px;right:16px;z-index:2000;display:flex;flex-direction:column;gap:6px;}
 .toast{
   background:var(--surface2);border:1px solid var(--border);
   border-radius:3px;padding:10px 13px;min-width:240px;max-width:300px;
@@ -190,6 +191,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .t-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
 .t-title{font-size:12px;font-weight:600;}
 .t-sub{font-family:var(--mono);font-size:10px;color:var(--muted);}
+
+/* ── DELAY NOTICE ── */
+#delay-bar{
+  position:fixed;top:56px;left:0;right:0;z-index:1000;
+  background:rgba(200,168,75,0.1);border-bottom:1px solid rgba(200,168,75,0.2);
+  padding:4px 16px;display:flex;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:10px;color:rgba(200,168,75,0.8);
+}
+.delay-icon{font-size:11px;}
 
 /* ── BOOT ── */
 #boot{
@@ -216,7 +226,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 <div id="boot">
   <div class="boot-badge">🛡</div>
   <div class="boot-title">HOOD BRIEF BOSTON</div>
-  <div class="boot-sub">MASSACHUSETTS STATE POLICE · LIVE SCANNER</div>
+  <div class="boot-sub">BPD · MASSACHUSETTS STATE POLICE · LIVE</div>
   <div class="spinner"></div>
   <div id="boot-msg">Connecting to MSP scanner feed…</div>
 </div>
@@ -231,9 +241,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
   </div>
   <div class="divider"></div>
   <div id="feed-labels">
-    <div class="feed-chip" id="chip-metro">TROOP A&H METRO</div>
-    <div class="feed-chip" id="chip-eastern">TROOP A EASTERN</div>
-    <div class="feed-chip" id="chip-special">SPECIAL EVENT</div>
+    <div class="feed-chip" id="chip-bpd">BPD CH 1-6</div>
+    <div class="feed-chip" id="chip-metro">MSP METRO</div>
+    <div class="feed-chip" id="chip-eastern">MSP EASTERN</div>
+    <div class="feed-chip" id="chip-special">MSP SPECIAL</div>
   </div>
   <div class="live-badge" id="live-badge">● LIVE</div>
   <div id="header-right">
@@ -243,6 +254,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
   </div>
 </div>
 
+<div id="delay-bar">
+  <span class="delay-icon">⚠</span>
+  <span class="delay-text">BPD feed rebroadcast via RapidSOS — slight delay by design &nbsp;·&nbsp; MSP feeds live via Broadcastify</span>
+</div>
 <div id="search-bar">
   <input id="search-input" type="text" placeholder="Search address or Massachusetts town…">
   <button id="search-btn">Search</button>
@@ -258,9 +273,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 </div>
 <div id="filter-feed" class="filter-row">
   <div class="chip active" data-feed="all">All Feeds</div>
-  <div class="chip" data-feed="metro_boston">Troop A&H Metro</div>
-  <div class="chip" data-feed="eastern_ma">Troop A Eastern</div>
-  <div class="chip" data-feed="special_event">Special Event</div>
+  <div class="chip" data-feed="bpd_scan">🚔 BPD All Districts</div>
+  <div class="chip" data-feed="metro_boston">🛡 MSP Metro</div>
+  <div class="chip" data-feed="eastern_ma">🛡 MSP Eastern</div>
+  <div class="chip" data-feed="special_event">🛡 MSP Special Event</div>
 </div>
 
 <div id="main">
@@ -277,7 +293,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
       <div><div class="stat-val" id="stat-p1">0</div><div class="stat-label">PRIORITY 1</div></div>
       <div><div class="stat-val" id="stat-med">0</div><div class="stat-label">MEDICAL</div></div>
     </div>
-    <div id="map-attr">MSP Feeds: 26120 · 3969 · 36603</div>
+    <div id="map-attr">BPD via RapidSOS (delayed) · MSP via Broadcastify (live)</div>
   </div>
 </div>
 <div id="toast-container"></div>
@@ -292,10 +308,14 @@ const CONFIG = {
 };
 
 const FEED_LABELS = {
-  metro_boston:  "Troop A&H Metro",
-  eastern_ma:    "Troop A Eastern",
-  special_event: "Special Event",
+  bpd_scan:      "BPD — All Districts",
+  metro_boston:  "MSP Metro Boston",
+  eastern_ma:    "MSP Eastern MA",
+  special_event: "MSP Special Event",
 };
+
+// Feeds with rebroadcast delay
+const DELAYED_FEEDS = new Set(["bpd_scan"]);
 
 const PIN_COL = {p1:"#e8394a", p2:"#f0922b", medical:"#2d8cf0"};
 
@@ -399,7 +419,9 @@ function renderFeed() {
       : inc.priority === "p2"
       ? `<span class="tag tag-p2">PRIORITY 2</span>`
       : `<span class="tag tag-med">MEDICAL</span>`;
-    const ftag = `<span class="tag tag-feed">${FEED_LABELS[inc.city] || inc.city || ""}</span>`;
+    const isDelayed = DELAYED_FEEDS.has(inc.city);
+    const delayNote = isDelayed ? ` <span class="tag tag-delay">~delayed</span>` : "";
+    const ftag = `<span class="tag tag-feed">${FEED_LABELS[inc.city] || inc.city || ""}</span>${delayNote}`;
     const gtag = inc.gang_hotspot ? `<span class="tag tag-gang">⚠ Gang Zone</span>` : "";
     const gbar = inc.gang_hotspot ? `<div class="gang-bar">⚠ ${inc.gang_zone}</div>` : "";
     const unit = inc.unit ? `<div class="inc-unit">Unit: ${inc.unit}</div>` : "";
@@ -469,6 +491,7 @@ function updateStats() {
 // ── FEED CHIP ACTIVITY ────────────────────────────────────────────────────────
 function updateFeedChips() {
   const feeds = new Set(S.incidents.map(i => i.city));
+  document.getElementById("chip-bpd").classList.toggle("active", feeds.has("bpd_scan"));
   document.getElementById("chip-metro").classList.toggle("active", feeds.has("metro_boston"));
   document.getElementById("chip-eastern").classList.toggle("active", feeds.has("eastern_ma"));
   document.getElementById("chip-special").classList.toggle("active", feeds.has("special_event"));
