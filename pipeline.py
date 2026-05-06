@@ -25,17 +25,17 @@ MAX_RETRIES      = 3
 CITIES = {
     "metro_boston": {
         "label":      "Metro Boston, MA",
-        "stream_url": "https://broadcastify.cdnstream1.com/26120",
+        "stream_url": os.environ.get("STREAM_URL_METRO", "https://listen.broadcastify.com/rqwh00c5y28p71b.mp3?nc=5094&xan=xtf9912b"),
         "center":     (42.3601, -71.0589),
     },
     "eastern_ma": {
         "label":      "Eastern MA",
-        "stream_url": "https://broadcastify.cdnstream1.com/3969",
+        "stream_url": os.environ.get("STREAM_URL_EASTERN", "https://listen.broadcastify.com/hm0rd2jq85x1tk3.mp3?nc=92154&xan=xtf9912b"),
         "center":     (42.4673, -71.0180),
     },
     "special_event": {
         "label":      "Boston Special Event",
-        "stream_url": "https://broadcastify.cdnstream1.com/36603",
+        "stream_url": os.environ.get("STREAM_URL_SPECIAL", "https://listen.broadcastify.com/tq8nr7zdskbjy5h.mp3?nc=73155&xan=xtf9912b"),
         "center":     (42.3601, -71.0589),
     },
 }
