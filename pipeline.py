@@ -313,7 +313,7 @@ def transcribe(audio_bytes):
     tmp_path = None
     for attempt in range(MAX_RETRIES):
         try:
-            with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
+            with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
                 f.write(audio_bytes)
                 tmp_path = f.name
             model = get_whisper_model()
@@ -850,16 +850,38 @@ def process_relay_audio(audio_bytes):
     tmp_in = None
     try:
         # faster-whisper can handle opus/webm directly — no ffmpeg needed
-        with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
             f.write(audio_bytes)
             tmp_in = f.name
 
-        # Try to transcribe — faster-whisper uses ffmpeg internally
-        # If opus fails, try renaming to webm which may have better codec detection
+        # Convert raw Opus frames to WAV using subprocess ffmpeg
+        import subprocess
+        tmp_wav = tmp_in.replace(".opus", ".wav")
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-i", tmp_in,
+                 "-ar", "16000", "-ac", "1", tmp_wav],
+                capture_output=True, timeout=20
+            )
+            if result.returncode != 0:
+                # Try without specifying input format
+                result = subprocess.run(
+                    ["ffmpeg", "-y", "-i", tmp_in,
+                     "-ar", "16000", "-ac", "1", tmp_wav],
+                    capture_output=True, timeout=20
+                )
+            audio_file = tmp_wav if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0 else tmp_in
+        except FileNotFoundError:
+            print("  [BPD Relay] ffmpeg not found — check nixpacks.toml")
+            return
+        except Exception as e:
+            print(f"  [BPD Relay] ffmpeg error: {e}")
+            audio_file = tmp_in
+
         model = get_whisper_model()
         try:
             segments, _ = model.transcribe(
-                tmp_in,
+                audio_file,
                 language="en",
                 beam_size=5,
                 temperature=0.0,
@@ -916,9 +938,10 @@ def process_relay_audio(audio_bytes):
     except Exception as e:
         print(f"  [BPD Relay] Error: {e}")
     finally:
-        if tmp_in and os.path.exists(tmp_in):
-            try: os.unlink(tmp_in)
-            except: pass
+        for p in [tmp_in, locals().get('tmp_wav')]:
+            if p and os.path.exists(p):
+                try: os.unlink(p)
+                except: pass
 
 def run_relay_server():
     """Start HTTP server to receive audio from Oracle VM relay."""
