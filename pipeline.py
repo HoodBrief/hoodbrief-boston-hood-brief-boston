@@ -14,6 +14,7 @@ Cost: $0/month (faster-whisper on Railway Pro, no AI APIs)
 import os, re, time, json, tempfile, threading, requests
 from datetime import datetime, timezone
 from faster_whisper import WhisperModel
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SUPABASE_URL     = os.environ.get("SUPABASE_URL", "")
@@ -28,6 +29,8 @@ MAX_RETRIES      = 3
 # BPD worker URL — Cloudflare Worker proxying RapidSOS WebSocket
 BPD_WORKER_URL  = os.environ.get("BPD_WORKER_URL", "")
 RAPIDSOS_COOKIE  = os.environ.get("RAPIDSOS_COOKIE", "")
+RELAY_SECRET     = os.environ.get("RELAY_SECRET", "hoodbrief")
+RELAY_PORT       = int(os.environ.get("RELAY_PORT", "8080"))
 
 CITIES = {
     "bpd_scan": {
@@ -878,6 +881,131 @@ def check_diplomatic_proximity(lat, lng):
     fn = globals().get('_check_diplomatic_proximity', lambda lat, lng, r=50: (False, None))
     return fn(lat, lng, 50)
 
+# ── BPD Audio Receiver (HTTP server for Oracle relay) ────────────────────────
+class BPDAudioHandler(BaseHTTPRequestHandler):
+    """Receives 30s audio chunks from Oracle VM relay, transcribes and parses."""
+
+    def log_message(self, format, *args):
+        pass  # Suppress default HTTP logs
+
+    def do_POST(self):
+        # Verify secret
+        secret = self.headers.get("X-Relay-Secret", "")
+        if secret != RELAY_SECRET:
+            self.send_response(403)
+            self.end_headers()
+            return
+
+        # Read audio
+        length = int(self.headers.get("Content-Length", 0))
+        audio_bytes = self.rfile.read(length)
+
+        self.send_response(200)
+        self.end_headers()
+
+        if len(audio_bytes) < 1000:
+            return
+
+        print(f"[BPD Relay] Received {len(audio_bytes):,} bytes from Oracle VM")
+
+        # Process in background thread so HTTP response isn't delayed
+        threading.Thread(
+            target=process_relay_audio,
+            args=(audio_bytes,),
+            daemon=True
+        ).start()
+
+def process_relay_audio(audio_bytes):
+    """Transcribe and parse BPD relay audio chunk."""
+    tmp_in = tmp_wav = None
+    try:
+        # Save raw opus audio
+        with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
+            f.write(audio_bytes)
+            tmp_in = f.name
+
+        # Convert to WAV with ffmpeg
+        import subprocess
+        tmp_wav = tmp_in.replace(".opus", ".wav")
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", tmp_in, "-ar", "16000", "-ac", "1",
+             "-f", "wav", tmp_wav],
+            capture_output=True, timeout=15
+        )
+
+        if result.returncode != 0 or not os.path.exists(tmp_wav):
+            print(f"  [BPD Relay] ffmpeg failed: {result.stderr[-100:]}")
+            # Try transcribing raw anyway
+            tmp_wav = tmp_in
+
+        # Transcribe
+        model = get_whisper_model()
+        segments, _ = model.transcribe(
+            tmp_wav,
+            language="en",
+            beam_size=5,
+            temperature=0.0,
+            vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 300, "threshold": 0.5},
+            initial_prompt=(
+                "Boston Police Department scanner dispatch. "
+                "Unit designations, BPD district codes, Boston street addresses. "
+                "Incidents, arrests, pursuits, domestic, shooting, medical."
+            ),
+        )
+        transcript = " ".join(s.text for s in segments).strip()
+
+        if not transcript or len(transcript) < 8:
+            print("  [BPD Relay] No speech detected")
+            return
+
+        print(f"  [BPD Relay] Raw: {transcript[:120]}...")
+
+        # Check for hallucinations
+        for marker in ["capital one", "cashback", "broadcastify premium",
+                        "police scanner radio dispatch"]:
+            if marker in transcript.lower():
+                print("  [BPD Relay] Hallucination rejected")
+                return
+
+        # Parse
+        parsed = parse_incident(transcript, "bpd_scan")
+        if not parsed.get("incident"):
+            return
+
+        # Geocode
+        coords, label = geocode_location(parsed["location"])
+        if not coords:
+            print(f"  [BPD Relay] Location not verified: {parsed['location']}")
+            return
+
+        parsed["lat"], parsed["lng"] = coords
+        if label:
+            parsed["location"] = label
+
+        hotspot, zone = check_hotspot(transcript)
+        near_con, consulate = check_diplomatic_proximity(coords[0], coords[1])
+
+        save_incident(parsed, "bpd_scan", transcript, transcript,
+                      hotspot, zone, "Boston PD — All Districts",
+                      near_con, consulate)
+
+        print(f"  [BPD Relay] ✅ Saved: [{parsed['priority'].upper()}] {parsed['title']} @ {parsed['location']}")
+
+    except Exception as e:
+        print(f"  [BPD Relay] Error: {e}")
+    finally:
+        for p in [tmp_in, tmp_wav]:
+            if p and p != tmp_in and os.path.exists(p):
+                try: os.unlink(p)
+                except: pass
+
+def run_relay_server():
+    """Start HTTP server to receive audio from Oracle VM relay."""
+    server = HTTPServer(("0.0.0.0", RELAY_PORT), BPDAudioHandler)
+    print(f"[BPD Relay] HTTP receiver listening on port {RELAY_PORT}")
+    server.serve_forever()
+
 # ── Fugitive Scraper ─────────────────────────────────────────────────────────
 def run_fugitives():
     """Weekly scrape of all three Boston fugitive sources."""
@@ -924,6 +1052,11 @@ if __name__ == "__main__":
         exit(1)
 
     threads = []
+
+    # BPD Relay HTTP receiver
+    t_relay = threading.Thread(target=run_relay_server, daemon=True, name="bpd_relay")
+    t_relay.start()
+    print("  ✓ Started: BPD relay receiver")
 
     # Consulates — load and geocode once at startup
     t_consulates = threading.Thread(target=init_consulates, daemon=True, name="consulates")
