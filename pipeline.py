@@ -43,41 +43,52 @@ CITIES = {
 # ── MSP 10-Code Translation ───────────────────────────────────────────────────
 # MSP uses a different system from Memphis — codes 1-22+ not 10-XX format
 # They say "code 15" not "10-15"
+# MSP uses single-digit codes, not 10-codes
+# Source: Broadcastify feed 26120 description (verified)
+# Syntax: "H5 583, give me a 2" or "212Echo E4, check XYZ for an 11 and 14"
 CODES_MSP = {
-    # MSP numeric codes (said as "code N" or just "N")
-    "code-1":  "standby emergency",
-    "code-2":  "phone your barracks",
-    "code-4":  "cruiser out of service",
-    "code-5":  "cruiser in service",
-    "code-6":  "what is your location",
-    "code-7":  "return to barracks",
-    "code-8":  "stopping suspicious vehicle",
-    "code-10": "stolen check",
-    "code-11": "license plate check",
-    "code-14": "missing or wanted",
-    "code-15": "officer in trouble",
-    "code-16": "motor vehicle accident",
-    "code-17": "clear",
-    # Standard 10-codes also used
-    "10-4":   "acknowledged",
-    "10-7":   "out of service",
-    "10-8":   "in service",
-    "10-9":   "repeat",
-    "10-10":  "check for stolen or wanted",
-    "10-11":  "license registration check",
-    "10-13":  "request help",
-    "10-15":  "officer in trouble",
-    "10-20":  "location",
-    "10-33":  "emergency",
-    "10-55":  "car to car traffic",
-    "10-99":  "officer needs help",
+    # Core MSP codes (single numbers)
+    " a 1 ":   " hold radio traffic ",
+    " a 2 ":   " phone your barracks ",
+    " a 3 ":   " phone direct ",
+    " a 4 ":   " out of service ",
+    " code 4 ": " out of service ",
+    " a 5 ":   " in service ",
+    " code 5 ": " in service ",
+    " a 6 ":   " location ",
+    " a 7 ":   " return to barracks ",
+    " a 8 ":   " stopping suspicious vehicle ",
+    " a 9 ":   " registration check ",
+    " a 10 ":  " stolen check ",
+    " a 11 ":  " license check ",
+    " a 12 ":  " any messages ",
+    " a 13 ":  " radio check ",
+    " a 14 ":  " warrants check ",
+    " a 15 ":  " trooper in trouble ",
+    " a 16 ":  " motor vehicle accident ",
+    " a 17 ":  " clear ",
+    " a 22 ":  " complainant ",
+    " a 30 ":  " trooper needs assistance ",
+    # MSP terminology
+    "dmv":     "disabled motor vehicle",
+    "q5":      "suicidal statements",
+    "bolo":    "be on lookout",
+    "oln":     "license number",
+    "bdl":     "breakdown lane",
+    "pi":      "personal injury accident",
+    "dre":     "drug recognition expert",
+    "cars":    "collision analysis reconstruction",
 }
 
 def translate_codes(text):
-    result = text
+    result = " " + text + " "
     for code, meaning in CODES_MSP.items():
-        pattern = rf"\b{re.escape(code)}\b"
-        result = re.sub(pattern, meaning, result, flags=re.IGNORECASE)
+        result = result.replace(code, meaning)
+        result = result.replace(code.upper(), meaning)
+    # Also handle 10-code format if used
+    result = re.sub(r"\b10-4\b", "acknowledged", result, flags=re.I)
+    result = re.sub(r"\b10-33\b", "emergency", result, flags=re.I)
+    result = re.sub(r"\b10-99\b", "trooper needs help", result, flags=re.I)
     return re.sub(r" {2,}", " ", result).strip()
 
 # ── MSP-Specific Incident Patterns ───────────────────────────────────────────
@@ -305,10 +316,11 @@ def transcribe(audio_bytes):
                 vad_filter=True,
                 vad_parameters={"min_silence_duration_ms": 300, "threshold": 0.6},
                 initial_prompt=(
-                    "Massachusetts State Police scanner dispatch. "
-                    "Codes like code-15, 10-4, 10-99. "
-                    "Unit numbers, trooper designations. "
-                    "Boston metro street addresses and Massachusetts towns."
+                    "Massachusetts State Police scanner radio. "
+                    "Single digit codes: give me a 2, on a 4, give me a 16. "
+                    "Trooper units like H5 583, A2 212, H-PTL-1. "
+                    "MSP terms: DMV, BDL, rolling 9, make the flip, direction of flight. "
+                    "Massachusetts highway routes, Boston metro addresses and towns."
                 ),
             )
             text = " ".join(s.text for s in segments).strip()
