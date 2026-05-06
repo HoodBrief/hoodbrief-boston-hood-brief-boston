@@ -713,7 +713,7 @@ def sb_get(path, params=None):
     r.raise_for_status()
     return r.json()
 
-def save_incident(parsed, city, transcript_raw, transcript_translated, hotspot, zone, feed_label):
+def save_incident(parsed, city, transcript_raw, transcript_translated, hotspot, zone, feed_label, near_consulate=False, consulate=None):
     data = {
         "city":             city,
         "feed":             feed_label,
@@ -727,6 +727,9 @@ def save_incident(parsed, city, transcript_raw, transcript_translated, hotspot, 
         "priority":         parsed["priority"],
         "gang_hotspot":     hotspot,
         "gang_zone":        zone,
+        "near_consulate":   near_consulate,
+        "consulate_country": consulate["country"] if consulate else None,
+        "consulate_address": consulate["address"] if consulate else None,
         "created_at":       datetime.now(timezone.utc).isoformat(),
     }
     r = requests.post(
@@ -800,6 +803,7 @@ def run_feed(feed_key):
                 parsed["location"] = intersection_label
 
             hotspot, zone = check_hotspot(combined)
+            near_consulate, consulate = check_diplomatic_proximity(lat, lng)
 
             # Dedup
             dedup_key = f"{parsed['location']}|{priority}"
@@ -819,6 +823,21 @@ def run_feed(feed_key):
             time.sleep(5)
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
+# ── Consulate Proximity ──────────────────────────────────────────────────────
+def init_consulates():
+    try:
+        from boston_consulates import load_consulates, check_diplomatic_proximity as _cdp
+        load_consulates()
+        globals()['_check_diplomatic_proximity'] = _cdp
+        print("[Consulates] ✅ Diplomatic facilities loaded")
+    except Exception as e:
+        print(f"[Consulates] Error: {e}")
+        globals()['_check_diplomatic_proximity'] = lambda lat, lng, r=50: (False, None)
+
+def check_diplomatic_proximity(lat, lng):
+    fn = globals().get('_check_diplomatic_proximity', lambda lat, lng, r=50: (False, None))
+    return fn(lat, lng, 50)
+
 # ── Fugitive Scraper ─────────────────────────────────────────────────────────
 def run_fugitives():
     """Weekly scrape of all three Boston fugitive sources."""
@@ -865,6 +884,11 @@ if __name__ == "__main__":
         exit(1)
 
     threads = []
+
+    # Consulates — load and geocode once at startup
+    t_consulates = threading.Thread(target=init_consulates, daemon=True, name="consulates")
+    t_consulates.start()
+    print("  ✓ Started: Diplomatic facility loader")
 
     # Heatmap — load once at startup
     t_heatmap = threading.Thread(target=run_heatmap, daemon=True, name="heatmap")
