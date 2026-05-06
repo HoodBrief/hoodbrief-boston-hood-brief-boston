@@ -819,10 +819,42 @@ def run_feed(feed_key):
             time.sleep(5)
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
+# ── Fugitive Scraper ─────────────────────────────────────────────────────────
+def run_fugitives():
+    """Weekly scrape of all three Boston fugitive sources."""
+    while True:
+        try:
+            from boston_fugitives import run as scrape_fugitives
+            scrape_fugitives()
+        except Exception as e:
+            print(f"[Fugitives] Error: {e}")
+        time.sleep(7 * 24 * 3600)  # weekly
+
+# ── Heatmap Loader ────────────────────────────────────────────────────────────
+def run_heatmap():
+    """Load heatmap from historical Boston incident data (runs once at startup)."""
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/boston_heatmap_points?select=count&limit=1",
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+            timeout=10,
+        )
+        data = r.json()
+        if data and len(data) > 0:
+            print("[Heatmap] Already populated — skipping reload")
+            return
+    except Exception:
+        pass
+    try:
+        from boston_heatmap import run as load_heatmap
+        load_heatmap()
+    except Exception as e:
+        print(f"[Heatmap] Error: {e}")
+
 if __name__ == "__main__":
     print("╔══════════════════════════════════════════╗")
     print("║  Hood Brief Boston — MSP Scanner         ║")
-    print("║  3 Feeds · Troops A & H · Special Event  ║")
+    print("║  BPD · Troops A & H · Special Event      ║")
     print("╚══════════════════════════════════════════╝")
 
     errors = []
@@ -833,12 +865,25 @@ if __name__ == "__main__":
         exit(1)
 
     threads = []
+
+    # Heatmap — load once at startup
+    t_heatmap = threading.Thread(target=run_heatmap, daemon=True, name="heatmap")
+    t_heatmap.start()
+    print("  ✓ Started: Heatmap loader")
+
+    # Fugitives — scrape weekly
+    t_fugs = threading.Thread(target=run_fugitives, daemon=True, name="fugitives")
+    t_fugs.start()
+    print("  ✓ Started: Fugitive scraper (weekly)")
+
+    # Scanner feeds
     for feed_key in CITIES:
         t = threading.Thread(target=run_feed, args=(feed_key,), daemon=True, name=feed_key)
         t.start()
         threads.append(t)
         print(f"  ✓ Started: {CITIES[feed_key]['label']}")
 
+    threads += [t_heatmap, t_fugs]
     print("All feeds running.")
     while True:
         time.sleep(60)
