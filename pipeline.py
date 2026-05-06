@@ -36,19 +36,16 @@ CITIES = {
         "label":      "MSP Metro Boston",
         "stream_url": os.environ.get("STREAM_URL_METRO",   "https://listen.broadcastify.com/rqwh00c5y28p71b.mp3?nc=5094&xan=xtf9912b"),
         "center":     (42.3601, -71.0589),
-        "use_worker": False,
     },
     "eastern_ma": {
         "label":      "MSP Eastern MA",
         "stream_url": os.environ.get("STREAM_URL_EASTERN", "https://listen.broadcastify.com/hm0rd2jq85x1tk3.mp3?nc=92154&xan=xtf9912b"),
         "center":     (42.4673, -71.0180),
-        "use_worker": False,
     },
     "special_event": {
         "label":      "MSP Special Event",
         "stream_url": os.environ.get("STREAM_URL_SPECIAL", "https://listen.broadcastify.com/tq8nr7zdskbjy5h.mp3?nc=73155&xan=xtf9912b"),
         "center":     (42.3601, -71.0589),
-        "use_worker": False,
     },
 }
 
@@ -316,7 +313,7 @@ def transcribe(audio_bytes):
     tmp_path = None
     for attempt in range(MAX_RETRIES):
         try:
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+            with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
                 f.write(audio_bytes)
                 tmp_path = f.name
             model = get_whisper_model()
@@ -738,10 +735,8 @@ def run_feed(feed_key):
 
     while True:
         try:
-            if use_worker:
-                audio = capture_bpd_chunk(CHUNK_SECONDS)
-            else:
-                audio = capture_chunk(stream_url, CHUNK_SECONDS)
+
+            audio = capture_chunk(stream_url, CHUNK_SECONDS)
             if len(audio) < 1000:
                 print(f"[{label}] Audio too small — skipping")
                 time.sleep(5)
@@ -855,25 +850,30 @@ def process_relay_audio(audio_bytes):
     tmp_in = None
     try:
         # faster-whisper can handle opus/webm directly — no ffmpeg needed
-        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
+        with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
             f.write(audio_bytes)
             tmp_in = f.name
 
-        # Transcribe directly
+        # Try to transcribe — faster-whisper uses ffmpeg internally
+        # If opus fails, try renaming to webm which may have better codec detection
         model = get_whisper_model()
-        segments, _ = model.transcribe(
-            tmp_in,
-            language="en",
-            beam_size=5,
-            temperature=0.0,
-            vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 300, "threshold": 0.5},
-            initial_prompt=(
-                "Boston Police Department scanner dispatch. "
-                "Unit designations, BPD district codes, Boston street addresses. "
-                "Incidents, arrests, pursuits, domestic, shooting, medical."
-            ),
-        )
+        try:
+            segments, _ = model.transcribe(
+                tmp_in,
+                language="en",
+                beam_size=5,
+                temperature=0.0,
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 300, "threshold": 0.5},
+                initial_prompt=(
+                    "Boston Police Department scanner dispatch. "
+                    "Unit designations, BPD district codes, Boston street addresses. "
+                    "Incidents, arrests, pursuits, domestic, shooting, medical."
+                ),
+            )
+        except Exception as whisper_err:
+            print(f"  [BPD Relay] Whisper error: {whisper_err}")
+            return
         transcript = " ".join(s.text for s in segments).strip()
 
         if not transcript or len(transcript) < 8:
