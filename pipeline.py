@@ -365,17 +365,53 @@ def capture_bpd_chunk(seconds):
         return b""
     try:
         url = f"{BPD_WORKER_URL}?channel=BPD_SCAN&http=1&seconds={seconds}"
-        r = requests.get(url, timeout=seconds + 15,
+        r = requests.get(url, timeout=seconds + 20,
                         headers={"User-Agent": "HoodBrief/1.0"})
         if r.status_code == 204:
-            return b""  # No audio
+            return b""  # No audio / silent
         if r.status_code != 200:
-            print(f"  [BPD Worker] HTTP {r.status_code}")
+            print(f"  [BPD Worker] HTTP {r.status_code}: {r.text[:100]}")
             return b""
-        return r.content
+        audio = r.content
+        content_type = r.headers.get("Content-Type", "")
+        chunks = r.headers.get("X-Chunks", "?")
+        byt = r.headers.get("X-Bytes", "?")
+        print(f"  [BPD] Got {len(audio):,} bytes ({chunks} chunks, type={content_type})")
+        # If Opus/raw PCM, convert to wav for Whisper using ffmpeg
+        if "opus" in content_type.lower() or "octet" in content_type.lower():
+            audio = convert_to_wav(audio)
+        return audio
     except Exception as e:
         print(f"  [BPD Worker] Error: {e}")
         return b""
+
+def convert_to_wav(audio_bytes):
+    """Convert raw Opus/PCM audio to WAV using ffmpeg for Whisper compatibility."""
+    import subprocess, tempfile, os
+    tmp_in = tmp_out = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
+            f.write(audio_bytes)
+            tmp_in = f.name
+        tmp_out = tmp_in.replace(".opus", ".wav")
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", tmp_in, "-ar", "16000", "-ac", "1", tmp_out],
+            capture_output=True, timeout=15,
+        )
+        if result.returncode == 0 and os.path.exists(tmp_out):
+            with open(tmp_out, "rb") as f:
+                return f.read()
+        else:
+            print(f"  [BPD] ffmpeg conversion failed: {result.stderr[-100:]}")
+            return audio_bytes  # return raw and let Whisper try
+    except Exception as e:
+        print(f"  [BPD] Conversion error: {e}")
+        return audio_bytes
+    finally:
+        for p in [tmp_in, tmp_out]:
+            if p and os.path.exists(p):
+                try: os.unlink(p)
+                except: pass
 
 def capture_chunk(stream_url, seconds):
     for attempt in range(MAX_RETRIES):
