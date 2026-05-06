@@ -27,18 +27,11 @@ MAX_RETRIES      = 3
 # When tokens expire, update these variables in Railway (no code change needed)
 # Get fresh URLs from: broadcastify.com/listen/feed/FEEDID -> DevTools -> Network -> .mp3
 # BPD worker URL — Cloudflare Worker proxying RapidSOS WebSocket
-BPD_WORKER_URL  = os.environ.get("BPD_WORKER_URL", "")
 RAPIDSOS_COOKIE  = os.environ.get("RAPIDSOS_COOKIE", "")
 RELAY_SECRET     = os.environ.get("RELAY_SECRET", "hoodbrief")
 RELAY_PORT       = int(os.environ.get("RELAY_PORT", "8080"))
 
 CITIES = {
-    "bpd_scan": {
-        "label":      "Boston PD — All Districts",
-        "stream_url": None,  # Uses BPD_WORKER_URL instead of direct MP3
-        "center":     (42.3601, -71.0589),
-        "use_worker": True,
-    },
     "metro_boston": {
         "label":      "MSP Metro Boston",
         "stream_url": os.environ.get("STREAM_URL_METRO",   "https://listen.broadcastify.com/rqwh00c5y28p71b.mp3?nc=5094&xan=xtf9912b"),
@@ -362,64 +355,6 @@ def transcribe(audio_bytes):
     return ""
 
 # ── Audio Capture ─────────────────────────────────────────────────────────────
-def capture_bpd_chunk(seconds):
-    """Capture audio from BPD RapidSOS via Cloudflare Worker HTTP endpoint."""
-    if not BPD_WORKER_URL:
-        print("  [BPD] BPD_WORKER_URL not set — skipping")
-        return b""
-    try:
-        url = f"{BPD_WORKER_URL}?channel=BPD_SCAN&http=1&seconds={seconds}"
-        if RAPIDSOS_COOKIE:
-            from urllib.parse import quote
-            url += f"&cookie={quote(RAPIDSOS_COOKIE, safe='')}"
-        r = requests.get(url, timeout=seconds + 20,
-                        headers={"User-Agent": "HoodBrief/1.0"})
-        if r.status_code == 204:
-            return b""  # No audio / silent
-        if r.status_code != 200:
-            print(f"  [BPD Worker] HTTP {r.status_code}: {r.text[:100]}")
-            return b""
-        audio = r.content
-        content_type = r.headers.get("Content-Type", "")
-        chunks = r.headers.get("X-Chunks", "?")
-        byt = r.headers.get("X-Bytes", "?")
-        print(f"  [BPD] Got {len(audio):,} bytes ({chunks} chunks, type={content_type})")
-        # If Opus/raw PCM, convert to wav for Whisper using ffmpeg
-        if "opus" in content_type.lower() or "octet" in content_type.lower():
-            audio = convert_to_wav(audio)
-        return audio
-    except Exception as e:
-        print(f"  [BPD Worker] Error: {e}")
-        return b""
-
-def convert_to_wav(audio_bytes):
-    """Convert raw Opus/PCM audio to WAV using ffmpeg for Whisper compatibility."""
-    import subprocess, tempfile, os
-    tmp_in = tmp_out = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
-            f.write(audio_bytes)
-            tmp_in = f.name
-        tmp_out = tmp_in.replace(".opus", ".wav")
-        result = subprocess.run(
-            ["ffmpeg", "-y", "-i", tmp_in, "-ar", "16000", "-ac", "1", tmp_out],
-            capture_output=True, timeout=15,
-        )
-        if result.returncode == 0 and os.path.exists(tmp_out):
-            with open(tmp_out, "rb") as f:
-                return f.read()
-        else:
-            print(f"  [BPD] ffmpeg conversion failed: {result.stderr[-100:]}")
-            return audio_bytes  # return raw and let Whisper try
-    except Exception as e:
-        print(f"  [BPD] Conversion error: {e}")
-        return audio_bytes
-    finally:
-        for p in [tmp_in, tmp_out]:
-            if p and os.path.exists(p):
-                try: os.unlink(p)
-                except: pass
-
 def capture_chunk(stream_url, seconds):
     for attempt in range(MAX_RETRIES):
         try:
@@ -794,7 +729,7 @@ def run_feed(feed_key):
     info       = CITIES[feed_key]
     stream_url = info["stream_url"]
     label      = info["label"]
-    use_worker = info.get("use_worker", False)
+
     prev_transcript = ""
     last_saved_key  = ""
     last_saved_time = 0
@@ -917,31 +852,17 @@ class BPDAudioHandler(BaseHTTPRequestHandler):
 
 def process_relay_audio(audio_bytes):
     """Transcribe and parse BPD relay audio chunk."""
-    tmp_in = tmp_wav = None
+    tmp_in = None
     try:
-        # Save raw opus audio
-        with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
+        # faster-whisper can handle opus/webm directly — no ffmpeg needed
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
             f.write(audio_bytes)
             tmp_in = f.name
 
-        # Convert to WAV with ffmpeg
-        import subprocess
-        tmp_wav = tmp_in.replace(".opus", ".wav")
-        result = subprocess.run(
-            ["ffmpeg", "-y", "-i", tmp_in, "-ar", "16000", "-ac", "1",
-             "-f", "wav", tmp_wav],
-            capture_output=True, timeout=15
-        )
-
-        if result.returncode != 0 or not os.path.exists(tmp_wav):
-            print(f"  [BPD Relay] ffmpeg failed: {result.stderr[-100:]}")
-            # Try transcribing raw anyway
-            tmp_wav = tmp_in
-
-        # Transcribe
+        # Transcribe directly
         model = get_whisper_model()
         segments, _ = model.transcribe(
-            tmp_wav,
+            tmp_in,
             language="en",
             beam_size=5,
             temperature=0.0,
@@ -995,10 +916,9 @@ def process_relay_audio(audio_bytes):
     except Exception as e:
         print(f"  [BPD Relay] Error: {e}")
     finally:
-        for p in [tmp_in, tmp_wav]:
-            if p and p != tmp_in and os.path.exists(p):
-                try: os.unlink(p)
-                except: pass
+        if tmp_in and os.path.exists(tmp_in):
+            try: os.unlink(tmp_in)
+            except: pass
 
 def run_relay_server():
     """Start HTTP server to receive audio from Oracle VM relay."""
