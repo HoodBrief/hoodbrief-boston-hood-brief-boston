@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080c18">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: wss: data: blob:;">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Hood Brief Boston</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -151,7 +152,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .tag-feed{background:rgba(26,79,160,0.15);color:#6b9ff0;border:1px solid rgba(26,79,160,0.3);}
 .tag-delay{background:rgba(200,168,75,0.1);color:rgba(200,168,75,0.7);border:1px solid rgba(200,168,75,0.2);}
 .tag-consulate{background:rgba(132,204,22,0.15);color:#bef264;border:1px solid rgba(132,204,22,0.4);font-weight:600;}
-.incident.near-consulate{border-left-color:#bef264 !important;}
+.incident.near-consulate{border-left-color:#bef264;}
 .incident.near-consulate .inc-title{color:#bef264;}
 .inc-time{float:right;font-family:var(--mono);font-size:10px;color:var(--muted);}
 .inc-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px;line-height:1.3;}
@@ -163,6 +164,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
   margin-top:5px;padding:3px 8px;
   background:rgba(232,57,74,0.08);border-left:2px solid var(--gang);
   font-family:var(--mono);font-size:9px;color:#ff8090;
+}
+.consulate-bar{
+  margin-top:5px;padding:3px 8px;
+  background:rgba(132,204,22,0.08);border-left:2px solid #bef264;
+  font-family:var(--mono);font-size:9px;color:#bef264;
 }
 
 /* ── MAP STATS ── */
@@ -429,7 +435,7 @@ function renderFeed() {
     const gtag = inc.gang_hotspot ? `<span class="tag tag-gang">⚠ Gang Zone</span>` : "";
     const gbar = inc.gang_hotspot ? `<div class="gang-bar">⚠ ${inc.gang_zone}</div>` : "";
     const consTag = inc.near_consulate ? `<span class="tag tag-consulate">🏛 Near ${inc.consulate_country} Consulate</span>` : "";
-    const consBar = inc.near_consulate ? `<div style="margin-top:5px;padding:3px 8px;background:rgba(132,204,22,0.08);border-left:2px solid #bef264;font-family:var(--mono);font-size:9px;color:#bef264;">🏛 Within 50m of ${inc.consulate_country} Consulate General</div>` : "";
+    const consBar = inc.near_consulate ? `<div class="consulate-bar">🏛 ${inc.consulate_country} Consulate General — Diplomatic Proximity</div>` : "";
     const unit = inc.unit ? `<div class="inc-unit">Unit: ${inc.unit}</div>` : "";
     return `<div class="incident${sel}${gangCls}${consularCls}" data-id="${inc.id}">
       <div class="inc-time">${timeStr(inc.created_at)}</div>
@@ -606,8 +612,8 @@ async function loadConsulateMarkers() {
       if (!c.lat || !c.lng) return;
       const icon = L.divIcon({
         className: "",
-        html: `<div style="width:20px;height:20px;border-radius:3px;background:#1a2e05;border:2px solid #bef264;display:flex;align-items:center;justify-content:center;font-size:10px;box-shadow:0 0 8px rgba(190,242,100,0.4)">🏛</div>`,
-        iconSize: [20,20], iconAnchor: [10,10],
+        html: `<div style="width:7px;height:7px;border-radius:50%;background:#fff;border:1px solid rgba(255,255,255,0.6);"></div>`,
+        iconSize: [7,7], iconAnchor: [3,3],
       });
       const m = L.marker([parseFloat(c.lat), parseFloat(c.lng)], {icon, zIndexOffset: -100}).addTo(S.map);
       m.bindPopup(`
