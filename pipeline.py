@@ -25,21 +25,33 @@ MAX_RETRIES      = 3
 # Stream URLs — set via Railway environment variables
 # When tokens expire, update these variables in Railway (no code change needed)
 # Get fresh URLs from: broadcastify.com/listen/feed/FEEDID -> DevTools -> Network -> .mp3
+# BPD worker URL — Cloudflare Worker proxying RapidSOS WebSocket
+BPD_WORKER_URL = os.environ.get("BPD_WORKER_URL", "")
+
 CITIES = {
+    "bpd_scan": {
+        "label":      "Boston PD — All Districts",
+        "stream_url": None,  # Uses BPD_WORKER_URL instead of direct MP3
+        "center":     (42.3601, -71.0589),
+        "use_worker": True,
+    },
     "metro_boston": {
-        "label":      "Metro Boston, MA",
+        "label":      "MSP Metro Boston",
         "stream_url": os.environ.get("STREAM_URL_METRO",   "https://listen.broadcastify.com/rqwh00c5y28p71b.mp3?nc=5094&xan=xtf9912b"),
         "center":     (42.3601, -71.0589),
+        "use_worker": False,
     },
     "eastern_ma": {
-        "label":      "Eastern MA",
+        "label":      "MSP Eastern MA",
         "stream_url": os.environ.get("STREAM_URL_EASTERN", "https://listen.broadcastify.com/hm0rd2jq85x1tk3.mp3?nc=92154&xan=xtf9912b"),
         "center":     (42.4673, -71.0180),
+        "use_worker": False,
     },
     "special_event": {
-        "label":      "Boston Special Event",
+        "label":      "MSP Special Event",
         "stream_url": os.environ.get("STREAM_URL_SPECIAL", "https://listen.broadcastify.com/tq8nr7zdskbjy5h.mp3?nc=73155&xan=xtf9912b"),
         "center":     (42.3601, -71.0589),
+        "use_worker": False,
     },
 }
 
@@ -346,6 +358,25 @@ def transcribe(audio_bytes):
     return ""
 
 # ── Audio Capture ─────────────────────────────────────────────────────────────
+def capture_bpd_chunk(seconds):
+    """Capture audio from BPD RapidSOS via Cloudflare Worker HTTP endpoint."""
+    if not BPD_WORKER_URL:
+        print("  [BPD] BPD_WORKER_URL not set — skipping")
+        return b""
+    try:
+        url = f"{BPD_WORKER_URL}?channel=BPD_SCAN&http=1&seconds={seconds}"
+        r = requests.get(url, timeout=seconds + 15,
+                        headers={"User-Agent": "HoodBrief/1.0"})
+        if r.status_code == 204:
+            return b""  # No audio
+        if r.status_code != 200:
+            print(f"  [BPD Worker] HTTP {r.status_code}")
+            return b""
+        return r.content
+    except Exception as e:
+        print(f"  [BPD Worker] Error: {e}")
+        return b""
+
 def capture_chunk(stream_url, seconds):
     for attempt in range(MAX_RETRIES):
         try:
@@ -717,6 +748,7 @@ def run_feed(feed_key):
     info       = CITIES[feed_key]
     stream_url = info["stream_url"]
     label      = info["label"]
+    use_worker = info.get("use_worker", False)
     prev_transcript = ""
     last_saved_key  = ""
     last_saved_time = 0
@@ -725,7 +757,10 @@ def run_feed(feed_key):
 
     while True:
         try:
-            audio = capture_chunk(stream_url, CHUNK_SECONDS)
+            if use_worker:
+                audio = capture_bpd_chunk(CHUNK_SECONDS)
+            else:
+                audio = capture_chunk(stream_url, CHUNK_SECONDS)
             if len(audio) < 1000:
                 print(f"[{label}] Audio too small — skipping")
                 time.sleep(5)
