@@ -743,7 +743,7 @@ def save_incident(parsed, city, transcript_raw, transcript_translated, hotspot, 
         json=data,
         timeout=15,
     )
-    if r.status_code not in (200, 201, 204):
+    if r.status_code not in (200, 201, 204) and r.status_code != 409:
         print(f"  [Supabase] Error {r.status_code}: {r.text[:150]}")
 
 # ── City Runner ───────────────────────────────────────────────────────────────
