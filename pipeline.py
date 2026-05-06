@@ -365,6 +365,9 @@ def capture_bpd_chunk(seconds):
         return b""
     try:
         url = f"{BPD_WORKER_URL}?channel=BPD_SCAN&http=1&seconds={seconds}"
+        if RAPIDSOS_COOKIE:
+            from urllib.parse import quote
+            url += f"&cookie={quote(RAPIDSOS_COOKIE, safe='')}"
         r = requests.get(url, timeout=seconds + 20,
                         headers={"User-Agent": "HoodBrief/1.0"})
         if r.status_code == 204:
