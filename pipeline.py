@@ -21,21 +21,26 @@ SUPABASE_KEY     = os.environ.get("SUPABASE_KEY", "")
 GOOGLE_MAPS_KEY  = os.environ.get("GOOGLE_MAPS_KEY", "")
 CHUNK_SECONDS    = 30
 MAX_RETRIES      = 3
+BROADCASTIFY_USER = os.environ.get("BROADCASTIFY_USER", "")
+BROADCASTIFY_PASS = os.environ.get("BROADCASTIFY_PASS", "")
 
+# Static permanent URLs for Broadcastify premium subscribers
+# Format: https://audio.broadcastify.com/FEEDID.mp3
+# Authenticated via BROADCASTIFY_USER and BROADCASTIFY_PASS env vars
 CITIES = {
     "metro_boston": {
         "label":      "Metro Boston, MA",
-        "stream_url": os.environ.get("STREAM_URL_METRO", "https://listen.broadcastify.com/rqwh00c5y28p71b.mp3?nc=5094&xan=xtf9912b"),
+        "stream_url": "https://audio.broadcastify.com/26120.mp3",
         "center":     (42.3601, -71.0589),
     },
     "eastern_ma": {
         "label":      "Eastern MA",
-        "stream_url": os.environ.get("STREAM_URL_EASTERN", "https://listen.broadcastify.com/hm0rd2jq85x1tk3.mp3?nc=92154&xan=xtf9912b"),
+        "stream_url": "https://audio.broadcastify.com/3969.mp3",
         "center":     (42.4673, -71.0180),
     },
     "special_event": {
         "label":      "Boston Special Event",
-        "stream_url": os.environ.get("STREAM_URL_SPECIAL", "https://listen.broadcastify.com/tq8nr7zdskbjy5h.mp3?nc=73155&xan=xtf9912b"),
+        "stream_url": "https://audio.broadcastify.com/36603.mp3",
         "center":     (42.3601, -71.0589),
     },
 }
@@ -346,7 +351,20 @@ def transcribe(audio_bytes):
 def capture_chunk(stream_url, seconds):
     for attempt in range(MAX_RETRIES):
         try:
-            r = requests.get(stream_url, stream=True, timeout=seconds + 10)
+            auth = None
+            if BROADCASTIFY_USER and BROADCASTIFY_PASS:
+                auth = (BROADCASTIFY_USER, BROADCASTIFY_PASS)
+            r = requests.get(
+                stream_url, stream=True, timeout=seconds + 10,
+                auth=auth,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; HoodBrief/1.0)"},
+            )
+            if r.status_code == 401:
+                print(f"  Audio auth failed — check BROADCASTIFY_USER/PASS")
+                return b""
+            if r.status_code != 200:
+                print(f"  Audio HTTP {r.status_code} — skipping")
+                return b""
             chunks = []
             start = time.time()
             for chunk in r.iter_content(chunk_size=4096):
