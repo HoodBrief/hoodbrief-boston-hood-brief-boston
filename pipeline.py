@@ -32,20 +32,10 @@ RELAY_SECRET     = os.environ.get("RELAY_SECRET", "hoodbrief")
 RELAY_PORT       = int(os.environ.get("RELAY_PORT", "8080"))
 
 CITIES = {
-    "metro_boston": {
-        "label":      "MSP Metro Boston",
-        "stream_url": os.environ.get("STREAM_URL_METRO",   "https://listen.broadcastify.com/rqwh00c5y28p71b.mp3?nc=5094&xan=xtf9912b"),
-        "center":     (42.3601, -71.0589),
-    },
     "eastern_ma": {
         "label":      "MSP Eastern MA",
         "stream_url": os.environ.get("STREAM_URL_EASTERN", "https://listen.broadcastify.com/hm0rd2jq85x1tk3.mp3?nc=92154&xan=xtf9912b"),
         "center":     (42.4673, -71.0180),
-    },
-    "special_event": {
-        "label":      "MSP Special Event",
-        "stream_url": os.environ.get("STREAM_URL_SPECIAL", "https://listen.broadcastify.com/tq8nr7zdskbjy5h.mp3?nc=73155&xan=xtf9912b"),
-        "center":     (42.3601, -71.0589),
     },
 }
 
@@ -911,6 +901,16 @@ def process_relay_audio(audio_bytes):
 
         if not transcript or len(transcript) < 8:
             print("  [BPD Relay] No speech detected")
+            return
+
+        # Reject Whisper prompt echo (happens when audio is silent)
+        PROMPT_ECHOES = [
+            "bpd district codes", "boston street addresses",
+            "unit designations", "all rights reserved",
+            "incidents, arrests, pursuits",
+        ]
+        if any(p in transcript.lower() for p in PROMPT_ECHOES):
+            print("  [BPD Relay] Prompt echo rejected")
             return
 
         print(f"  [BPD Relay] Raw: {transcript[:120]}...")
