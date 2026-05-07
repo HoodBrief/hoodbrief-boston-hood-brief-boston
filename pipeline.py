@@ -879,6 +879,18 @@ def process_relay_audio(audio_bytes):
             audio_file = tmp_in
 
         model = get_whisper_model()
+        # Log audio file info for debugging
+        try:
+            import subprocess as _sp
+            _probe = _sp.run(["ffprobe", "-v", "error", "-show_streams",
+                             "-select_streams", "a", audio_file],
+                            capture_output=True, text=True, timeout=10)
+            if _probe.stdout:
+                for _line in _probe.stdout.split("\n"):
+                    if any(k in _line for k in ["codec_name","sample_rate","channels","duration"]):
+                        print(f"  [BPD Audio] {_line.strip()}")
+        except Exception: pass
+
         try:
             segments, _ = model.transcribe(
                 audio_file,
