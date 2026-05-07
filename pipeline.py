@@ -885,8 +885,7 @@ def process_relay_audio(audio_bytes):
                 language="en",
                 beam_size=5,
                 temperature=0.0,
-                vad_filter=True,
-                vad_parameters={"min_silence_duration_ms": 300, "threshold": 0.5},
+                vad_filter=False,  # Disable VAD for BPD — Opus codec may confuse it
                 initial_prompt=(
                     "Boston Police Department scanner dispatch. "
                     "Unit designations, BPD district codes, Boston street addresses. "
