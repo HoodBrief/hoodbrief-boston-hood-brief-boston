@@ -235,7 +235,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 <div id="boot">
   <div class="boot-badge">🛡</div>
   <div class="boot-title">HOOD BRIEF BOSTON</div>
-  <div class="boot-sub">BPD · MASSACHUSETTS STATE POLICE · LIVE</div>
+  <div class="boot-sub">BPD · MSP EASTERN MA · LIVE</div>
   <div class="spinner"></div>
   <div id="boot-msg">Connecting to MSP scanner feed…</div>
 </div>
@@ -251,9 +251,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
   <div class="divider"></div>
   <div id="feed-labels">
     <div class="feed-chip" id="chip-bpd">BPD CH 1-6</div>
-    <div class="feed-chip" id="chip-metro">MSP METRO</div>
     <div class="feed-chip" id="chip-eastern">MSP EASTERN</div>
-    <div class="feed-chip" id="chip-special">MSP SPECIAL</div>
   </div>
   <div class="live-badge" id="live-badge">● LIVE</div>
   <div id="header-right">
@@ -283,9 +281,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 <div id="filter-feed" class="filter-row">
   <div class="chip active" data-feed="all">All Feeds</div>
   <div class="chip" data-feed="bpd_scan">🚔 BPD All Districts</div>
-  <div class="chip" data-feed="metro_boston">🛡 MSP Metro</div>
-  <div class="chip" data-feed="eastern_ma">🛡 MSP Eastern</div>
-  <div class="chip" data-feed="special_event">🛡 MSP Special Event</div>
+  <div class="chip" data-feed="eastern_ma">🛡 MSP Eastern MA</div>
 </div>
 
 <div id="main">
@@ -302,7 +298,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
       <div><div class="stat-val" id="stat-p1">0</div><div class="stat-label">PRIORITY 1</div></div>
       <div><div class="stat-val" id="stat-med">0</div><div class="stat-label">MEDICAL</div></div>
     </div>
-    <div id="map-attr">BPD via RapidSOS (delayed) · MSP via Broadcastify (live)</div>
+    <div id="map-attr">BPD via RapidSOS (delayed) · MSP Eastern MA via Broadcastify</div>
   </div>
 </div>
 <div id="toast-container"></div>
@@ -317,10 +313,8 @@ const CONFIG = {
 };
 
 const FEED_LABELS = {
-  bpd_scan:      "BPD — All Districts",
-  metro_boston:  "MSP Metro Boston",
-  eastern_ma:    "MSP Eastern MA",
-  special_event: "MSP Special Event",
+  bpd_scan:   "BPD — All Districts",
+  eastern_ma: "MSP Eastern MA",
 };
 
 // Feeds with rebroadcast delay
@@ -505,9 +499,7 @@ function updateStats() {
 function updateFeedChips() {
   const feeds = new Set(S.incidents.map(i => i.city));
   document.getElementById("chip-bpd").classList.toggle("active", feeds.has("bpd_scan"));
-  document.getElementById("chip-metro").classList.toggle("active", feeds.has("metro_boston"));
   document.getElementById("chip-eastern").classList.toggle("active", feeds.has("eastern_ma"));
-  document.getElementById("chip-special").classList.toggle("active", feeds.has("special_event"));
 }
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
