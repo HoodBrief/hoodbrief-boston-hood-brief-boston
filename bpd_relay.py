@@ -43,7 +43,7 @@ def make_ogg_page(payload, serial, seq, granule=0, flags=0):
 def wrap_ogg(frames):
     serial = random.randint(1, 0xFFFFFF)
     pages  = []; seq = 0
-    id_hdr = b'OpusHead\x01\x01\x38\x01\x80\x3e\x00\x00\x00\x00\x00'
+    id_hdr = b'OpusHead\x01\x01\x38\x01\x80\xbb\x00\x00\x00\x00\x00'
     pages.append(make_ogg_page(id_hdr, serial, seq, 0, 0x02)); seq += 1
     vendor  = b'HoodBrief'
     com_hdr = b'OpusTags' + struct.pack('<I', len(vendor)) + vendor + struct.pack('<I', 0)
