@@ -903,11 +903,18 @@ def process_relay_audio(audio_bytes):
             print("  [BPD Relay] No speech detected")
             return
 
+        print(f"  [BPD Relay] Raw: {transcript[:120]}...")
+
         # Reject Whisper prompt echo (happens when audio is silent)
         PROMPT_ECHOES = [
             "bpd district codes", "boston street addresses",
             "unit designations", "all rights reserved",
             "incidents, arrests, pursuits",
+            "thank you for watching",
+            "thanks for watching",
+            "police scanner radio",
+            "broadcastify",
+            "massachusetts state police scanner",
         ]
         if any(p in transcript.lower() for p in PROMPT_ECHOES):
             print("  [BPD Relay] Prompt echo rejected")
@@ -923,9 +930,13 @@ def process_relay_audio(audio_bytes):
                 return
 
         # Parse
+        print(f"  [BPD Relay] Transcript: {transcript[:100]}")
         parsed = parse_incident(transcript, "bpd_scan")
         if not parsed.get("incident"):
+            print(f"  [BPD Relay] No incident detected — skipping")
             return
+
+        print(f"  [BPD Relay] Detected: [{parsed['priority'].upper()}] {parsed['title']} @ {parsed['location']}")
 
         # Geocode
         coords, label = geocode_location(parsed["location"])
