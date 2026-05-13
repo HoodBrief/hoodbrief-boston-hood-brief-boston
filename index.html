@@ -2,772 +2,669 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#080c18">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: wss: data: blob:;">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hood Brief Boston">
+<meta name="theme-color" content="#06080f">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: wss: data: blob:;">
 <title>Hood Brief Boston</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:       #080c18;
-  --surface:  #0e1422;
-  --surface2: #141928;
+:root {
+  --bg:       #06080f;
+  --surface:  #0c1018;
+  --surface2: #121820;
+  --surface3: #1a2230;
   --border:   rgba(255,255,255,0.07);
-  --text:     #dde4f0;
-  --muted:    #5a6580;
-  --msp-blue: #1a4fa0;
-  --msp-gold: #c8a84b;
-  --p1:       #e8394a;
-  --p2:       #f0922b;
-  --med:      #2d8cf0;
-  --gang:     #e8394a;
-  --green:    #22c55e;
-  --mono:     'IBM Plex Mono', monospace;
-  --sans:     'IBM Plex Sans', sans-serif;
+  --border2:  rgba(255,255,255,0.13);
+  --text:     #e2e8f4;
+  --text2:    #a0b0c8;
+  --text3:    #6b7d96;
+  --gold:     #f5c842;
+  --gold-dim: rgba(245,200,66,0.12);
+  --gold-bdr: rgba(245,200,66,0.28);
+  --red:      #ff3d4f;
+  --red-dim:  rgba(255,61,79,0.12);
+  --red-bdr:  rgba(255,61,79,0.28);
+  --amber:    #f59e0b;
+  --amber-dim:rgba(245,158,11,0.12);
+  --amber-bdr:rgba(245,158,11,0.28);
+  --green:    #10d98a;
+  --green-dim:rgba(16,217,138,0.10);
+  --green-bdr:rgba(16,217,138,0.22);
+  --blue:     #3d9eff;
+  --blue-dim: rgba(61,158,255,0.10);
+  --blue-bdr: rgba(61,158,255,0.22);
+  --gang:     #ff6b1a;
+  --gang-dim: rgba(255,107,26,0.12);
+  --gang-bdr: rgba(255,107,26,0.30);
+  --teal:     #14b8a6;
+  --teal-dim: rgba(20,184,166,0.12);
+  --teal-bdr: rgba(20,184,166,0.30);
+  --lime:     #bef264;
+  --lime-dim: rgba(190,242,100,0.10);
+  --lime-bdr: rgba(190,242,100,0.28);
+  --boston:   #3d9eff;
+  --font:     'Space Grotesk', sans-serif;
+  --mono:     'Space Mono', monospace;
 }
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-family:var(--font);overflow:hidden;-webkit-tap-highlight-color:transparent;}
 
-/* ── HEADER ── */
-#header{
-  position:fixed;top:0;left:0;right:0;z-index:1000;height:56px;
-  background:rgba(8,12,24,0.97);
-  border-bottom:1px solid var(--border);
-  display:flex;align-items:center;padding:0 16px;gap:12px;
-}
-#logo-block{display:flex;align-items:center;gap:10px;}
-#badge{
-  width:32px;height:32px;border-radius:50%;
-  background:linear-gradient(135deg,var(--msp-blue),#0d2d6b);
-  border:1.5px solid var(--msp-gold);
-  display:flex;align-items:center;justify-content:center;
-  font-size:14px;flex-shrink:0;
-}
-#logo{font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:0.08em;}
-#logo-top{color:var(--msp-gold);}
-#logo-bottom{color:var(--muted);font-size:9px;font-weight:400;letter-spacing:0.12em;margin-top:1px;}
-.divider{width:1px;height:24px;background:var(--border);margin:0 4px;}
-#feed-labels{display:flex;gap:6px;}
-.feed-chip{
-  font-family:var(--mono);font-size:9px;font-weight:500;
-  padding:2px 7px;border-radius:2px;
-  background:rgba(26,79,160,0.2);border:1px solid rgba(26,79,160,0.4);
-  color:#6b9ff0;white-space:nowrap;
-}
-.feed-chip.active{background:rgba(26,79,160,0.35);border-color:var(--msp-blue);color:#90baff;}
-#live-badge{
-  font-family:var(--mono);font-size:9px;font-weight:600;
-  color:var(--msp-gold);border:1px solid var(--msp-gold);padding:2px 7px;border-radius:2px;
-  animation:blink 2s ease-in-out infinite;
-}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0.4}}
-#header-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
-.hdr-btn{
-  font-family:var(--mono);font-size:10px;
-  background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.25);
-  color:#c8d4e8;padding:4px 10px;border-radius:2px;cursor:pointer;transition:all 0.15s;
-}
-.hdr-btn:hover{border-color:var(--msp-gold);color:var(--msp-gold);background:rgba(200,168,75,0.1);}
-.hdr-btn.active{border-color:var(--msp-gold);color:var(--msp-gold);background:rgba(200,168,75,0.15);}
-#conn-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);}
-#clock{font-family:var(--mono);font-size:11px;color:var(--muted);}
+/* HEADER */
+#header{display:flex;align-items:center;gap:7px;padding:0 10px;height:50px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;z-index:300;position:relative;}
+.logo-hood{font-size:18px;font-weight:700;color:var(--gold);letter-spacing:-0.5px;}
+.logo-brief{font-size:18px;font-weight:300;color:var(--text);letter-spacing:-0.5px;}
+.logo-city{font-size:18px;font-weight:700;color:var(--boston);letter-spacing:-0.5px;}
+.delayed-badge{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1.5px;color:var(--amber);background:var(--amber-dim);border:1px solid var(--amber-bdr);padding:3px 8px;border-radius:3px;}
+.delayed-dot{width:5px;height:5px;border-radius:50%;background:var(--amber);animation:blink 1.3s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+.city-label{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:1px;color:var(--boston);text-transform:uppercase;}
+.map-btn{padding:4px 8px;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;border-radius:3px;border:1px solid var(--border2);color:var(--text2);background:transparent;cursor:pointer;transition:all 0.15s;flex-shrink:0;white-space:nowrap;}
+.map-btn.active{color:var(--bg);border-color:transparent;}
+#heatmap-btn.active{background:var(--red);}
+#clock{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--text3);font-variant-numeric:tabular-nums;}
+#conn-dot{width:7px;height:7px;border-radius:50%;background:var(--text3);transition:all 0.4s;flex-shrink:0;}
+#conn-dot.ok{background:var(--green);box-shadow:0 0 5px var(--green);}
+#conn-dot.err{background:var(--red);}
 
-/* ── SEARCH ── */
-#search-bar{
-  position:fixed;top:78px;left:0;right:0;z-index:999;
-  background:rgba(8,12,24,0.95);border-bottom:1px solid var(--border);
-  padding:8px 16px;display:flex;gap:8px;
-}
-#search-input{
-  flex:1;background:rgba(255,255,255,0.04);border:1px solid var(--border);
-  border-radius:2px;color:var(--text);font-family:var(--mono);font-size:12px;
-  padding:6px 10px;outline:none;
-}
-#search-input:focus{border-color:var(--msp-blue);}
-#search-input::placeholder{color:var(--muted);}
-#search-btn{
-  background:var(--msp-blue);border:none;color:#fff;
-  font-family:var(--mono);font-size:11px;padding:6px 14px;border-radius:2px;cursor:pointer;
-}
-#search-clear{
-  background:rgba(255,255,255,0.06);border:1px solid var(--border);
-  color:var(--muted);font-family:var(--mono);font-size:11px;
-  padding:6px 10px;border-radius:2px;cursor:pointer;display:none;
-}
+/* SEARCH BAR */
+#radius-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border-bottom:1px solid var(--border);flex-shrink:0;}
+#addr-wrap{flex:1;display:flex;flex-direction:column;gap:0;min-width:0;}
+#addr-row{display:flex;gap:8px;align-items:center;}
+#addr-input{flex:1;background:var(--surface3);border:1px solid var(--border2);border-radius:5px;padding:7px 11px;font-family:var(--font);font-size:13px;color:var(--text);outline:none;transition:border-color 0.15s;min-width:0;}
+#addr-input::placeholder{color:var(--text3);}
+#addr-input:focus{border-color:var(--gold);}
+#search-btn{padding:7px 13px;background:var(--gold);color:var(--bg);border:none;border-radius:5px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;}
+#clear-btn{padding:7px 10px;background:transparent;border:1px solid var(--border2);border-radius:5px;color:var(--text2);font-size:12px;cursor:pointer;white-space:nowrap;display:none;flex-shrink:0;font-family:var(--font);}
+#clear-btn:hover{border-color:var(--red);color:var(--red);}
+#clear-btn.visible{display:block;}
+#radius-status{font-size:11px;font-family:var(--mono);color:var(--gold);display:none;margin-top:4px;}
+#radius-status.visible{display:block;}
 
-/* ── FILTER ROWS ── */
-.filter-row{
-  position:fixed;left:0;right:0;z-index:998;
-  background:rgba(8,12,24,0.95);border-bottom:1px solid var(--border);
-  padding:5px 16px;display:flex;gap:5px;overflow-x:auto;
-}
-#filter-type{top:126px;}
-#filter-feed{top:160px;}
-.chip{
-  font-family:var(--mono);font-size:9px;font-weight:500;
-  border:1px solid var(--border);color:var(--muted);
-  padding:2px 7px;border-radius:2px;cursor:pointer;
-  white-space:nowrap;transition:all 0.15s;background:transparent;flex-shrink:0;
-  letter-spacing:0.05em;
-}
-.chip:hover{border-color:rgba(255,255,255,0.2);color:var(--text);}
-.chip.active[data-f="all"]{background:rgba(26,79,160,0.2);border-color:var(--msp-blue);color:#90baff;}
-.chip.active[data-f="p1"]{background:rgba(232,57,74,0.15);border-color:var(--p1);color:var(--p1);}
-.chip.active[data-f="p2"]{background:rgba(240,146,43,0.15);border-color:var(--p2);color:var(--p2);}
-.chip.active[data-f="medical"]{background:rgba(45,140,240,0.15);border-color:var(--med);color:var(--med);}
-.chip.active[data-f="gang"]{background:rgba(232,57,74,0.15);border-color:var(--gang);color:var(--gang);}
-.chip.active[data-feed]{border-color:var(--msp-gold);color:var(--msp-gold);background:rgba(200,168,75,0.1);}
+/* FILTER BARS */
+.filter-bar{display:flex;gap:5px;padding:6px 11px;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;flex-shrink:0;scrollbar-width:none;}
+.filter-bar::-webkit-scrollbar{display:none;}
+.filter-bar-label{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1px;color:var(--text3);text-transform:uppercase;white-space:nowrap;display:flex;align-items:center;padding-right:6px;flex-shrink:0;border-right:1px solid var(--border2);margin-right:2px;}
+.chip{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;padding:4px 10px;border-radius:3px;border:1px solid var(--border2);color:var(--text2);background:transparent;white-space:nowrap;cursor:pointer;transition:all 0.13s;flex-shrink:0;}
+.chip:active{transform:scale(0.96);}
+.chip.active{border-color:transparent;color:var(--bg);}
+.chip[data-f="all"].active{background:var(--gold);}
+.chip[data-f="p1"].active{background:var(--red);}
+.chip[data-f="p2"].active{background:var(--amber);}
+.chip[data-f="medical"].active{background:var(--blue);}
+.chip[data-f="gang"].active{background:var(--gang);}
+.chip[data-f="p3"].active{background:var(--text3);color:var(--bg);}
+.chip[data-feed].active{background:var(--boston);color:var(--bg);}
+.dchip{font-size:9px;padding:4px 9px;}
+.dchip.active{color:var(--bg)!important;border-color:transparent!important;}
 
-/* ── MAIN LAYOUT ── */
-#main{position:fixed;top:194px;left:0;right:0;bottom:0;display:flex;}
-#feed{width:340px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--border);}
-#feed::-webkit-scrollbar{width:2px;}
-#feed::-webkit-scrollbar-thumb{background:var(--border);}
-#map{flex:1;position:relative;}
+/* LAYOUT */
+#body-wrap{display:flex;flex:1;overflow:hidden;min-height:0;}
+#feed-panel{width:370px;min-width:370px;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;background:var(--bg);}
+#feed-header{display:flex;align-items:center;justify-content:space-between;padding:5px 12px;background:var(--surface2);border-bottom:1px solid var(--border);font-family:var(--mono);font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;flex-shrink:0;}
+#feed-count{color:var(--gold);font-weight:700;}
+#feed-scroll{flex:1;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--surface3) transparent;}
+#map-wrap{flex:1;position:relative;}
+#map{width:100%;height:100%;}
 
-/* ── FEED HEADER ── */
-#feed-header{
-  padding:8px 14px;border-bottom:1px solid var(--border);
-  font-family:var(--mono);font-size:10px;color:var(--muted);
-  position:sticky;top:0;background:var(--surface2);z-index:10;
-  display:flex;justify-content:space-between;align-items:center;
-}
+/* INCIDENT CARDS */
+.incident{padding:11px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s;position:relative;animation:slideIn 0.25s ease forwards;}
+@keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.incident::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:transparent;transition:background 0.15s;}
+.incident:hover{background:var(--surface2);}
+.incident.selected{background:rgba(245,200,66,0.04);}
+.incident.selected::before{background:var(--gold);}
+.incident.is-gang::before{background:var(--gang);}
+.incident.near-consulate::before{background:var(--lime);}
+.badge{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:2px 6px;border-radius:2px;flex-shrink:0;}
+.badge-p1{background:var(--red-dim);color:var(--red);border:1px solid var(--red-bdr);}
+.badge-p2{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber-bdr);}
+.badge-medical{background:var(--blue-dim);color:var(--blue);border:1px solid var(--blue-bdr);}
+.badge-p3{background:rgba(107,125,150,0.12);color:var(--text3);border:1px solid rgba(107,125,150,0.25);}
+.badge-feed{background:rgba(61,158,255,0.10);color:var(--blue);border:1px solid rgba(61,158,255,0.22);}
+.badge-delayed{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber-bdr);font-size:8px;}
+.gang-tag{font-family:var(--mono);font-size:9px;font-weight:700;color:var(--gang);background:var(--gang-dim);border:1px solid var(--gang-bdr);padding:2px 6px;border-radius:2px;flex-shrink:0;}
+.consulate-tag{font-family:var(--mono);font-size:9px;font-weight:700;color:var(--lime);background:var(--lime-dim);border:1px solid var(--lime-bdr);padding:2px 6px;border-radius:2px;flex-shrink:0;}
+.radius-tag{font-family:var(--mono);font-size:9px;font-weight:700;color:var(--gold);background:var(--gold-dim);border:1px solid var(--gold-bdr);padding:2px 6px;border-radius:2px;}
+.new-tag{font-family:var(--mono);font-size:9px;font-weight:700;color:var(--green);background:var(--green-dim);border:1px solid var(--green-bdr);padding:2px 6px;border-radius:2px;}
+.inc-time{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text3);font-variant-numeric:tabular-nums;flex-shrink:0;}
+.inc-title{font-size:14px;font-weight:600;color:var(--text);line-height:1.3;margin-bottom:4px;}
+.incident.is-gang .inc-title{color:var(--gang);}
+.incident.near-consulate .inc-title{color:var(--lime);}
+.inc-loc{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text2);margin-bottom:3px;}
+.inc-unit{font-family:var(--mono);font-size:10px;color:var(--text3);}
+.inc-gang-zone{font-family:var(--mono);font-size:10px;color:var(--gang);margin-top:4px;padding:3px 7px;background:var(--gang-dim);border-left:2px solid var(--gang);border-radius:0 2px 2px 0;}
+.inc-consulate{font-family:var(--mono);font-size:10px;color:var(--lime);margin-top:4px;padding:3px 7px;background:var(--lime-dim);border-left:2px solid var(--lime);border-radius:0 2px 2px 0;}
+.state-msg{padding:36px 18px;text-align:center;font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;line-height:1.8;}
 
-/* ── INCIDENT CARDS ── */
-.incident{
-  padding:11px 14px;border-bottom:1px solid var(--border);
-  cursor:pointer;transition:background 0.12s;
-  border-left:3px solid transparent;
-}
-.incident:hover{background:rgba(255,255,255,0.025);}
-.incident.selected{background:rgba(26,79,160,0.1);border-left-color:var(--msp-blue);}
-.incident.is-gang{border-left-color:var(--p1);}
-.inc-tags{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:5px;align-items:center;}
-.tag{font-family:var(--mono);font-size:9px;font-weight:500;padding:2px 6px;border-radius:2px;}
-.tag-p1{background:rgba(232,57,74,0.15);color:var(--p1);border:1px solid rgba(232,57,74,0.3);}
-.tag-p2{background:rgba(240,146,43,0.15);color:var(--p2);border:1px solid rgba(240,146,43,0.3);}
-.tag-med{background:rgba(45,140,240,0.15);color:var(--med);border:1px solid rgba(45,140,240,0.3);}
-.tag-gang{background:rgba(232,57,74,0.12);color:#ff8090;border:1px solid rgba(232,57,74,0.25);}
-.tag-feed{background:rgba(26,79,160,0.15);color:#6b9ff0;border:1px solid rgba(26,79,160,0.3);}
-.tag-delay{background:rgba(200,168,75,0.1);color:rgba(200,168,75,0.7);border:1px solid rgba(200,168,75,0.2);}
-.tag-consulate{background:rgba(132,204,22,0.15);color:#bef264;border:1px solid rgba(132,204,22,0.4);font-weight:600;}
-.incident.near-consulate{border-left-color:#bef264;}
-.incident.near-consulate .inc-title{color:#bef264;}
-.inc-time{float:right;font-family:var(--mono);font-size:10px;color:var(--muted);}
-.inc-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px;line-height:1.3;}
-.incident.is-gang .inc-title{color:#ff8090;}
-.inc-loc{font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:2px;}
-.inc-loc::before{content:"📍 ";}
-.inc-unit{font-family:var(--mono);font-size:10px;color:var(--muted);}
-.gang-bar{
-  margin-top:5px;padding:3px 8px;
-  background:rgba(232,57,74,0.08);border-left:2px solid var(--gang);
-  font-family:var(--mono);font-size:9px;color:#ff8090;
-}
-.consulate-bar{
-  margin-top:5px;padding:3px 8px;
-  background:rgba(132,204,22,0.08);border-left:2px solid #bef264;
-  font-family:var(--mono);font-size:9px;color:#bef264;
-}
+/* MAP */
+.leaflet-container{background:#040608;}
+#radius-banner{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(6,8,15,0.92);border:1px solid var(--gold-bdr);border-radius:5px;padding:6px 14px;font-family:var(--mono);font-size:11px;color:var(--gold);white-space:nowrap;display:none;pointer-events:none;}
+.stat-pill{background:rgba(6,8,15,0.88);border:1px solid var(--border2);border-radius:3px;padding:4px 10px;font-family:var(--mono);font-size:10px;letter-spacing:0.5px;color:var(--text2);text-transform:uppercase;}
+.stat-pill b{color:var(--gold);}
+#heatmap-legend{position:absolute;bottom:28px;left:10px;z-index:1000;background:rgba(6,8,15,0.92);border:1px solid var(--border2);border-radius:5px;padding:8px 12px;display:none;pointer-events:none;}
+.heat-title{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px;}
+.heat-bar{width:120px;height:8px;border-radius:4px;background:linear-gradient(to right,#0000ff,#00ffff,#00ff00,#ffff00,#ff0000);margin-bottom:4px;}
+.heat-labels{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text3);}
+#stats-overlay{position:absolute;bottom:10px;right:10px;z-index:500;display:flex;gap:6px;}
 
-/* ── MAP STATS ── */
-#map-stats{
-  position:absolute;bottom:16px;right:16px;z-index:500;
-  background:rgba(8,12,24,0.92);border:1px solid var(--border);
-  border-radius:4px;padding:10px 14px;display:flex;gap:16px;
-}
-.stat-val{font-family:var(--mono);font-size:18px;font-weight:600;color:var(--msp-gold);text-align:center;}
-.stat-label{font-family:var(--mono);font-size:9px;color:var(--muted);text-align:center;margin-top:2px;}
+/* POPUP */
+.leaflet-popup-content-wrapper{background:var(--surface2)!important;color:var(--text)!important;border:1px solid var(--border2)!important;border-radius:7px!important;box-shadow:0 16px 48px rgba(0,0,0,0.85)!important;font-family:var(--font)!important;}
+.leaflet-popup-tip{background:var(--surface2)!important;}
+.leaflet-popup-close-button{color:var(--text2)!important;font-size:16px!important;}
+.p-badge{display:inline-block;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:2px 7px;border-radius:2px;margin-bottom:7px;}
+.p-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px;line-height:1.3;}
+.p-row{font-size:12px;color:var(--text2);margin-bottom:4px;display:flex;gap:6px;}
+.p-row b{color:var(--text);font-weight:500;}
+.p-gang{font-size:11px;color:var(--gang);font-weight:600;margin-top:6px;padding:5px 8px;background:var(--gang-dim);border:1px solid var(--gang-bdr);border-radius:3px;}
+.p-consulate{font-size:11px;color:var(--lime);font-weight:600;margin-top:6px;padding:5px 8px;background:var(--lime-dim);border:1px solid var(--lime-bdr);border-radius:3px;}
 
-/* ── MAP ATTRIBUTION ── */
-/* Map label overlay matching chip style */
-.leaflet-container .leaflet-overlay-pane {
-  font-family: var(--mono) !important;
-}
-#map-attr{
-  position:absolute;bottom:16px;left:16px;z-index:500;
-  font-family:var(--mono);font-size:9px;color:var(--muted);
-  background:rgba(8,12,24,0.8);padding:4px 8px;border-radius:2px;
-}
+/* TOAST */
+#toast-wrap{position:fixed;top:12px;right:12px;z-index:9000;display:flex;flex-direction:column;gap:7px;pointer-events:none;max-width:310px;}
+.toast{display:flex;align-items:flex-start;gap:9px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:10px 12px;pointer-events:all;cursor:pointer;animation:tIn 0.25s ease forwards;}
+@keyframes tIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+.toast.gang-toast{border-color:var(--gang-bdr);}
+.toast.consulate-toast{border-color:var(--lime-bdr);}
+.t-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px;}
+.t-city{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:2px;}
+.t-title{font-size:13px;font-weight:600;color:var(--text);}
+.t-loc{font-size:11px;color:var(--text2);margin-top:2px;}
 
-/* ── TOAST ── */
-#toast-container{position:fixed;top:202px;right:16px;z-index:2000;display:flex;flex-direction:column;gap:6px;}
-.toast{
-  background:var(--surface2);border:1px solid var(--border);
-  border-radius:3px;padding:10px 13px;min-width:240px;max-width:300px;
-  cursor:pointer;animation:slideIn 0.25s ease;
-}
-.toast.p1-toast{border-color:rgba(232,57,74,0.5);}
-@keyframes slideIn{from{transform:translateX(110%);opacity:0}to{transform:none;opacity:1}}
-.t-row{display:flex;align-items:center;gap:7px;margin-bottom:3px;}
-.t-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
-.t-title{font-size:12px;font-weight:600;}
-.t-sub{font-family:var(--mono);font-size:10px;color:var(--muted);}
-
-/* ── DELAY NOTICE ── */
-#delay-bar{
-  position:fixed;top:56px;left:0;right:0;z-index:1000;
-  background:rgba(200,168,75,0.1);border-bottom:1px solid rgba(200,168,75,0.2);
-  padding:4px 16px;display:flex;align-items:center;gap:8px;
-  font-family:var(--mono);font-size:10px;color:rgba(200,168,75,0.8);
-}
-.delay-icon{font-size:11px;}
-
-/* ── BOOT ── */
-#boot{
-  position:fixed;inset:0;z-index:9999;background:var(--bg);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
-}
-#boot.gone{display:none;}
-.boot-badge{
-  width:64px;height:64px;border-radius:50%;
-  background:linear-gradient(135deg,var(--msp-blue),#0d2d6b);
-  border:2px solid var(--msp-gold);
-  display:flex;align-items:center;justify-content:center;font-size:28px;
-  box-shadow:0 0 30px rgba(26,79,160,0.4);
-}
-.boot-title{font-family:var(--mono);font-size:18px;font-weight:600;color:var(--msp-gold);letter-spacing:0.1em;}
-.boot-sub{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:0.15em;}
-.spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--msp-blue);border-radius:50%;animation:spin 0.7s linear infinite;}
+/* BOOT */
+#boot-overlay{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;z-index:9999;}
+.boot-logo{display:flex;gap:0;}
+.boot-logo span:first-child{font-size:32px;font-weight:700;color:var(--gold);}
+.boot-logo span:nth-child(2){font-size:32px;font-weight:300;color:var(--text);}
+.boot-logo span:last-child{font-size:32px;font-weight:700;color:var(--boston);}
+.boot-msg{font-family:var(--mono);font-size:12px;color:var(--text2);letter-spacing:1px;text-transform:uppercase;}
+.spinner{width:32px;height:32px;border:2px solid var(--surface3);border-top-color:var(--gold);border-radius:50%;animation:spin 0.75s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
-#boot-msg{font-family:var(--mono);font-size:11px;color:var(--muted);}
+.leaflet-control-zoom a{background:var(--surface2)!important;color:var(--text)!important;border-color:var(--border2)!important;}
+
+/* WRAPPER */
+#app{display:flex;flex-direction:column;height:100%;}
 </style>
 </head>
 <body>
 
-<div id="boot">
-  <div class="boot-badge">🛡</div>
-  <div class="boot-title">HOOD BRIEF BOSTON</div>
-  <div class="boot-sub">BOSTON POLICE DEPARTMENT · DELAYED FEED</div>
+<!-- BOOT -->
+<div id="boot-overlay">
+  <div class="boot-logo"><span>HOOD</span><span> BRIEF </span><span>BOSTON</span></div>
+  <div class="boot-msg">Boston Police Department · Delayed Feed</div>
   <div class="spinner"></div>
-  <div id="boot-msg">Connecting to BPD scanner feed…</div>
+  <div id="boot-msg" class="boot-msg" style="font-size:10px;opacity:0.6">Connecting to BPD scanner feed…</div>
 </div>
 
-<div id="header">
-  <div id="logo-block">
-    <div id="badge">🛡</div>
-    <div>
-      <div id="logo"><span id="logo-top">HOOD BRIEF</span> <span style="color:#6b9ff0">BOSTON</span></div>
-      <div id="logo-bottom">MASSACHUSETTS STATE POLICE</div>
-    </div>
-  </div>
-  <div class="divider"></div>
-  <div id="feed-labels">
-    <div class="feed-chip" id="chip-ch3">CH3 ROXBURY</div>
-    <div class="feed-chip" id="chip-ch6">CH6 DORCHESTER</div>
-    <div class="feed-chip" id="chip-ch4">CH4 W.ROXBURY</div>
-    <div class="feed-chip" id="chip-ch5">CH5 BACK BAY</div>
-    <div class="feed-chip" id="chip-ch2">CH2 AREA A</div>
-    <div class="feed-chip" id="chip-ch1">CH1 SPECIAL</div>
-  </div>
-  <div class="live-badge" id="live-badge">● DELAYED</div>
-  <div id="header-right">
-    <button class="hdr-btn" id="btn-heatmap">Heat Map</button>
-    <button class="hdr-btn" id="btn-fugitives">Fugitives</button>
+<div id="app">
+  <!-- HEADER -->
+  <div id="header">
+    <span class="logo-hood">HOOD</span>
+    <span class="logo-brief">BRIEF</span>
+    <span class="logo-city">BOSTON</span>
+    <div class="delayed-badge"><div class="delayed-dot"></div>DELAYED</div>
+    <div style="margin-left:6px;font-family:var(--mono);font-size:9px;color:var(--text3);">BPD via RapidSOS</div>
+    <button class="map-btn" id="heatmap-btn">Heat Map</button>
     <div id="conn-dot"></div>
     <div id="clock"></div>
   </div>
-</div>
 
-<div id="delay-bar">
-  <span class="delay-icon">⚠</span>
-  <span class="delay-text">BPD feeds rebroadcast via RapidSOS — slight delay by design &nbsp;·&nbsp; 6 districts monitored 24/7</span>
-</div>
-<div id="search-bar">
-  <input id="search-input" type="text" placeholder="Search address or Massachusetts town…">
-  <button id="search-btn">Search</button>
-  <button id="search-clear">✕ Clear</button>
-</div>
-
-<div id="filter-type" class="filter-row">
-  <div class="chip active" data-f="all">All</div>
-  <div class="chip" data-f="p1">🔴 Priority 1</div>
-  <div class="chip" data-f="p2">🟠 Priority 2</div>
-  <div class="chip" data-f="medical">🔵 Medical</div>
-  <div class="chip" data-f="gang">⚠ Gang Zone</div>
-</div>
-<div id="filter-feed" class="filter-row">
-  <div class="chip active" data-feed="all">All Feeds</div>
-  <div class="chip" data-feed="bpd_ch3">CH3 Roxbury/Mattapan</div>
-  <div class="chip" data-feed="bpd_ch6">CH6 South Boston/Dorchester</div>
-  <div class="chip" data-feed="bpd_ch4">CH4 West Roxbury/Hyde Park</div>
-  <div class="chip" data-feed="bpd_ch5">CH5 Back Bay/South End</div>
-  <div class="chip" data-feed="bpd_ch2">CH2 Area A Downtown</div>
-  <div class="chip" data-feed="bpd_ch1">CH1 Special Event</div>
-</div>
-
-<div id="main">
-  <div id="feed">
-    <div id="feed-header">
-      <span id="feed-count">0 incidents</span>
-      <span id="feed-since" style="font-size:9px;color:var(--muted)"></span>
+  <!-- SEARCH -->
+  <div id="radius-bar">
+    <div id="addr-wrap">
+      <div id="addr-row">
+        <input id="addr-input" type="text" placeholder="Search Boston address or neighborhood…" autocomplete="off">
+        <button id="search-btn">Search</button>
+        <button id="clear-btn">✕ Clear</button>
+      </div>
+      <div id="radius-status"></div>
     </div>
-    <div id="feed-list"></div>
   </div>
-  <div id="map">
-    <div id="map-stats">
-      <div><div class="stat-val" id="stat-total">0</div><div class="stat-label">TOTAL</div></div>
-      <div><div class="stat-val" id="stat-p1">0</div><div class="stat-label">PRIORITY 1</div></div>
-      <div><div class="stat-val" id="stat-med">0</div><div class="stat-label">MEDICAL</div></div>
+
+  <!-- FILTER: PRIORITY -->
+  <div class="filter-bar">
+    <span class="filter-bar-label">Priority</span>
+    <button class="chip active" data-f="all">All</button>
+    <button class="chip" data-f="p1">🔴 P1</button>
+    <button class="chip" data-f="p2">🟡 P2</button>
+    <button class="chip" data-f="medical">🔵 Medical</button>
+    <button class="chip" data-f="gang">⚠ Gang Zone</button>
+    <button class="chip" data-f="consulate">🏛 Diplomatic</button>
+    <button class="chip" data-f="p3">⚪ Routine</button>
+  </div>
+
+  <!-- FILTER: CHANNEL -->
+  <div class="filter-bar">
+    <span class="filter-bar-label">Channel</span>
+    <button class="chip active" data-feed="all">All</button>
+    <button class="chip" data-feed="bpd_ch3">CH3 Roxbury</button>
+    <button class="chip" data-feed="bpd_ch6">CH6 Dorchester</button>
+    <button class="chip" data-feed="bpd_ch4">CH4 W.Roxbury</button>
+    <button class="chip" data-feed="bpd_ch5">CH5 Back Bay</button>
+    <button class="chip" data-feed="bpd_ch2">CH2 Area A</button>
+    <button class="chip" data-feed="bpd_ch1">CH1 Special</button>
+  </div>
+
+  <!-- BODY -->
+  <div id="body-wrap">
+    <div id="feed-panel">
+      <div id="feed-header">
+        <span id="feed-count">0 incidents</span>
+        <span id="feed-since" style="font-size:9px"></span>
+      </div>
+      <div id="feed-scroll"></div>
     </div>
-    <div id="map-attr">BPD CH1-6 via RapidSOS · Oracle VM relay</div>
+    <div id="map-wrap">
+      <div id="map"></div>
+      <div id="radius-banner"></div>
+      <div id="stats-overlay">
+        <div class="stat-pill" id="stat-total"><b>0</b> total</div>
+        <div class="stat-pill" id="stat-p1"><b>0</b> p1</div>
+        <div class="stat-pill" id="stat-med"><b>0</b> med</div>
+      </div>
+      <div id="heatmap-legend">
+        <div class="heat-title">Crime Density</div>
+        <div class="heat-bar"></div>
+        <div class="heat-labels"><span>Low</span><span>High</span></div>
+      </div>
+    </div>
   </div>
 </div>
-<div id="toast-container"></div>
+<div id="toast-wrap"></div>
 
 <script>
-const CONFIG = {
-  SUPABASE_URL: "https://qeycryztfenbycnldmsg.supabase.co",
-  SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFleWNyeXp0ZmVuYnljbmxkbXNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4OTE4NjEsImV4cCI6MjA5MzQ2Nzg2MX0.nO24WQHFCJuzaEJrJBa8R5uvxBMyG_K0Z5Gg1D4V2qk",
-  TABLE:        "boston_scanner_incidents",
-  CENTER:       [42.3601, -71.0589],
-  ZOOM:         11,
-};
+const SUPABASE_URL = "https://qeycryztfenbycnldmsg.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFleWNyeXp0ZmVuYnljbmxkbXNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4OTE4NjEsImV4cCI6MjA5MzQ2Nzg2MX0.nO24WQHFCJuzaEJrJBa8R5uvxBMyG_K0Z5Gg1D4V2qk";
+const TABLE        = "boston_scanner_incidents";
 
 const FEED_LABELS = {
-  bpd_scan: "BPD — All Districts",
-  bpd_ch1:  "BPD CH1 — Special Event",
-  bpd_ch2:  "BPD CH2 — Area A",
-  bpd_ch3:  "BPD CH3 — Roxbury/Mattapan",
-  bpd_ch4:  "BPD CH4 — West Roxbury",
-  bpd_ch5:  "BPD CH5 — Back Bay",
-  bpd_ch6:  "BPD CH6 — South Boston/Dorchester",
+  bpd_ch1: "BPD CH1 — Special Event",
+  bpd_ch2: "BPD CH2 — Area A",
+  bpd_ch3: "BPD CH3 — Roxbury/Mattapan",
+  bpd_ch4: "BPD CH4 — West Roxbury",
+  bpd_ch5: "BPD CH5 — Back Bay",
+  bpd_ch6: "BPD CH6 — South Boston/Dorchester",
+  bpd_scan:"BPD — All Districts",
 };
 
-// Feeds with rebroadcast delay
-const DELAYED_FEEDS = new Set(["bpd_scan"]);
-
-const PIN_COL = {p1:"#e8394a", p2:"#f0922b", medical:"#2d8cf0"};
+const PRIORITY_COLORS = {p1:"var(--red)",p2:"var(--amber)",medical:"var(--blue)",p3:"var(--text3)"};
+const PRIORITY_LABELS = {p1:"PRIORITY 1",p2:"PRIORITY 2",medical:"MEDICAL",p3:"ROUTINE"};
+const PRIORITY_BADGE  = {p1:"badge-p1",p2:"badge-p2",medical:"badge-medical",p3:"badge-p3"};
 
 const S = {
-  incidents: [], markers: {}, filter: "all", feedFilter: "all",
-  fugitiveMarkers: [],
-  selectedId: null, map: null, searchCenter: null, searchCircle: null,
-  searchMarker: null,
+  incidents:[],markers:{},filter:"all",feedFilter:"all",
+  selectedId:null,map:null,searchCenter:null,searchCircle:null,
+  searchMarker:null,heatLayer:null,consulateMarkers:[],
+  newIds:new Set(),
 };
 
 // ── SUPABASE ──────────────────────────────────────────────────────────────────
 const SB = {
-  async query(path) {
-    const r = await fetch(`${CONFIG.SUPABASE_URL}/rest/v1/${path}`, {
-      headers: {"apikey": CONFIG.SUPABASE_KEY, "Authorization": `Bearer ${CONFIG.SUPABASE_KEY}`}
+  async query(path){
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{
+      headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`}
     });
-    if (!r.ok) throw new Error(await r.text());
+    if(!r.ok) throw new Error(await r.text());
     return r.json();
   },
-  subscribe(cb) {
+  subscribe(cb){
     const ws = new WebSocket(
-      `${CONFIG.SUPABASE_URL.replace("https","wss").replace("http","ws")}/realtime/v1/websocket?apikey=${CONFIG.SUPABASE_KEY}&vsn=1.0.0`
+      `${SUPABASE_URL.replace("https","wss").replace("http","ws")}/realtime/v1/websocket?apikey=${SUPABASE_KEY}&vsn=1.0.0`
     );
-    ws.onopen = () => {
-      ws.send(JSON.stringify({topic:`realtime:public:${CONFIG.TABLE}`,event:"phx_join",payload:{},ref:"1"}));
-      document.getElementById("conn-dot").style.background = "var(--green)";
-      document.getElementById("conn-dot").style.boxShadow = "0 0 6px var(--green)";
+    ws.onopen=()=>{
+      ws.send(JSON.stringify({topic:`realtime:public:${TABLE}`,event:"phx_join",payload:{},ref:"1"}));
+      document.getElementById("conn-dot").className="ok";
     };
-    ws.onmessage = e => {
-      const msg = JSON.parse(e.data);
-      if (msg.event === "INSERT" && msg.payload?.record) cb(msg.payload.record);
+    ws.onmessage=e=>{
+      const msg=JSON.parse(e.data);
+      if(msg.event==="INSERT"&&msg.payload?.record) cb(msg.payload.record);
     };
-    ws.onclose = () => {
-      document.getElementById("conn-dot").style.background = "var(--p1)";
-      document.getElementById("conn-dot").style.boxShadow = "none";
-      setTimeout(() => SB.subscribe(cb), 5000);
+    ws.onclose=()=>{
+      document.getElementById("conn-dot").className="err";
+      setTimeout(()=>SB.subscribe(cb),5000);
     };
   }
 };
 
 // ── MAP ───────────────────────────────────────────────────────────────────────
-function initMap() {
-  S.map = L.map("map", {center: CONFIG.CENTER, zoom: CONFIG.ZOOM, zoomControl: true});
-  // Base map — dark matter at 60% brightness
-  const baseLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
-    subdomains: "abcd", maxZoom: 19,
+function initMap(){
+  S.map=L.map("map",{center:[42.3601,-71.0589],zoom:12,zoomControl:true});
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",{
+    subdomains:"abcd",maxZoom:19
   }).addTo(S.map);
-  baseLayer.getContainer && setTimeout(() => {
-    const el = document.querySelector(".leaflet-tile-pane");
-    if (el) el.style.filter = "brightness(1.6) contrast(0.85)";
-  }, 500);
-  // Labels layer — styled to match UI font
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", {
-    subdomains: "abcd", maxZoom: 19, pane: "shadowPane",
+  // Apply brightness boost to tiles
+  setTimeout(()=>{
+    const pane=document.querySelector(".leaflet-tile-pane");
+    if(pane) pane.style.filter="brightness(1.5) contrast(0.9)";
+  },500);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",{
+    subdomains:"abcd",maxZoom:19,pane:"shadowPane"
   }).addTo(S.map);
 }
 
-function makeIcon(priority, selected, isGang) {
-  const col = isGang ? "#e8394a" : (PIN_COL[priority] || "#5a6580");
-  const sz = selected ? 20 : 12;
-  const glow = selected ? `box-shadow:0 0 14px ${col}90;` : isGang ? `box-shadow:0 0 8px ${col}60;` : "";
+function makePin(priority,selected,isGang,isConsulate){
+  const col = isConsulate?"var(--lime)":isGang?"var(--gang)":(PRIORITY_COLORS[priority]||"var(--text3)");
+  const sz  = selected?18:10;
+  const glow= selected?`box-shadow:0 0 12px ${col};`:"";
   return L.divIcon({
-    className: "",
-    html: `<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${col};border:2px solid rgba(255,255,255,0.4);${glow}"></div>`,
-    iconSize: [sz,sz], iconAnchor: [sz/2,sz/2],
+    className:"",
+    html:`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${col};border:1.5px solid rgba(255,255,255,0.35);${glow}transition:all 0.2s;"></div>`,
+    iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]
   });
 }
 
-// ── TIME ─────────────────────────────────────────────────────────────────────
-function timeStr(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const now = new Date();
-  const diff = Math.floor((now - d) / 60000);
-  if (diff < 1) return "Just now";
-  if (diff < 60) return `${diff}m ago`;
-  if (diff < 1440) return d.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:true});
-  return d.toLocaleDateString("en-US",{month:"short",day:"numeric"}) + " " +
-         d.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:true});
+// ── TIME ──────────────────────────────────────────────────────────────────────
+function timeAgo(iso){
+  if(!iso) return "";
+  const d=new Date(iso),now=new Date(),diff=Math.floor((now-d)/60000);
+  if(diff<1) return "just now";
+  if(diff<60) return `${diff}m ago`;
+  if(diff<1440) return d.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:true});
+  return d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
 }
 
-// ── FILTERS ───────────────────────────────────────────────────────────────────
-function getVisible() {
-  return S.incidents.filter(i => {
-    if (S.filter !== "all") {
-      if (S.filter === "gang" && !i.gang_hotspot) return false;
-      if (S.filter !== "gang" && i.priority !== S.filter) return false;
-    }
-    if (S.feedFilter !== "all" && i.city !== S.feedFilter) return false;
-    if (S.searchCenter) {
-      const d = S.map.distance(S.searchCenter, [i.lat, i.lng]);
-      if (d > 8047) return false;
+// ── FILTER ────────────────────────────────────────────────────────────────────
+function getVisible(){
+  return S.incidents.filter(inc=>{
+    if(S.filter==="gang" && !inc.gang_hotspot) return false;
+    if(S.filter==="consulate" && !inc.near_consulate) return false;
+    if(S.filter!=="all"&&S.filter!=="gang"&&S.filter!=="consulate" && inc.priority!==S.filter) return false;
+    const feedKey = Object.keys(FEED_LABELS).find(k=>FEED_LABELS[k]===inc.feed) || inc.city;
+    if(S.feedFilter!=="all" && feedKey!==S.feedFilter && inc.city!==S.feedFilter) return false;
+    if(S.searchCenter){
+      const d=S.map.distance(S.searchCenter,[inc.lat,inc.lng]);
+      if(d>8047) return false;
     }
     return true;
   });
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────────
-function renderFeed() {
-  const visible = getVisible();
-  document.getElementById("feed-count").textContent = `${visible.length} incident${visible.length !== 1 ? "s" : ""}`;
-
-  const html = visible.map(inc => {
-    const sel = inc.id === S.selectedId ? " selected" : "";
-    const gangCls = inc.gang_hotspot ? " is-gang" : "";
-    const consularCls = inc.near_consulate ? " near-consulate" : "";
-    const ptag = inc.priority === "p1"
-      ? `<span class="tag tag-p1">PRIORITY 1</span>`
-      : inc.priority === "p2"
-      ? `<span class="tag tag-p2">PRIORITY 2</span>`
-      : `<span class="tag tag-med">MEDICAL</span>`;
-    const isDelayed = DELAYED_FEEDS.has(inc.city);
-    const delayNote = isDelayed ? ` <span class="tag tag-delay">~delayed</span>` : "";
-    const ftag = `<span class="tag tag-feed">${FEED_LABELS[inc.city] || inc.city || ""}</span>${delayNote}`;
-    const gtag = inc.gang_hotspot ? `<span class="tag tag-gang">⚠ Gang Zone</span>` : "";
-    const gbar = inc.gang_hotspot ? `<div class="gang-bar">⚠ ${inc.gang_zone}</div>` : "";
-    const consTag = inc.near_consulate ? `<span class="tag tag-consulate">🏛 Near ${inc.consulate_country} Consulate</span>` : "";
-    const consBar = inc.near_consulate ? `<div class="consulate-bar">🏛 ${inc.consulate_country} Consulate General — Diplomatic Proximity</div>` : "";
-    const unit = inc.unit ? `<div class="inc-unit">Unit: ${inc.unit}</div>` : "";
-    return `<div class="incident${sel}${gangCls}${consularCls}" data-id="${inc.id}">
-      <div class="inc-time">${timeStr(inc.created_at)}</div>
-      <div class="inc-tags">${ptag}${ftag}${gtag}${consTag}</div>
-      <div class="inc-title">${inc.title || "Incident"}</div>
-      <div class="inc-loc">${inc.location || ""}</div>
-      ${unit}${gbar}${consBar}
-    </div>`;
-  }).join("") || `<div style="padding:24px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted);">No incidents match current filters</div>`;
-
-  document.getElementById("feed-list").innerHTML = html;
-  syncMarkers(visible);
+function render(){
+  const visible=getVisible();
+  document.getElementById("feed-count").textContent=`${visible.length} incident${visible.length!==1?"s":""}`;
   updateStats();
 
-  document.querySelectorAll(".incident[data-id]").forEach(el => {
-    el.addEventListener("click", () => selectIncident(el.dataset.id));
+  if(!visible.length){
+    document.getElementById("feed-scroll").innerHTML=`<div class="state-msg"><span class="ico">📡</span>No incidents match current filters</div>`;
+    syncMarkers([]);
+    return;
+  }
+
+  document.getElementById("feed-scroll").innerHTML = visible.map(inc=>{
+    const sel   = inc.id===S.selectedId?" selected":"";
+    const gang  = inc.gang_hotspot?" is-gang":"";
+    const cons  = inc.near_consulate?" near-consulate":"";
+    const isNew = S.newIds.has(inc.id);
+    const pri   = inc.priority||"p3";
+    const feedLabel = inc.feed || FEED_LABELS[inc.city] || inc.city || "";
+    const feedKey   = Object.keys(FEED_LABELS).find(k=>FEED_LABELS[k]===feedLabel)||inc.city||"";
+
+    return `<div class="incident${sel}${gang}${cons}" data-id="${inc.id}">
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:6px;flex-wrap:wrap;">
+        <span class="badge ${PRIORITY_BADGE[pri]}">${PRIORITY_LABELS[pri]||pri.toUpperCase()}</span>
+        <span class="badge badge-feed">${feedLabel}</span>
+        ${inc.gang_hotspot?`<span class="gang-tag">⚠ GANG ZONE</span>`:""}
+        ${inc.near_consulate?`<span class="consulate-tag">🏛 DIPLOMATIC</span>`:""}
+        ${isNew?`<span class="new-tag">NEW</span>`:""}
+        <span class="inc-time">${timeAgo(inc.created_at)}</span>
+      </div>
+      <div class="inc-title">${inc.title||"Incident"}</div>
+      <div class="inc-loc">📍 ${inc.location||""}</div>
+      ${inc.unit?`<div class="inc-unit">Unit: ${inc.unit}</div>`:""}
+      ${inc.gang_hotspot?`<div class="inc-gang-zone">⚠ ${inc.gang_zone}</div>`:""}
+      ${inc.near_consulate?`<div class="inc-consulate">🏛 Near ${inc.consulate_country} Consulate</div>`:""}
+    </div>`;
+  }).join("");
+
+  document.querySelectorAll(".incident[data-id]").forEach(el=>{
+    el.addEventListener("click",()=>selectIncident(el.dataset.id));
   });
+  syncMarkers(visible);
 }
 
-function syncMarkers(visible) {
-  const ids = new Set(visible.map(i => i.id));
-  Object.keys(S.markers).forEach(id => {
-    if (!ids.has(id)) { S.map.removeLayer(S.markers[id]); delete S.markers[id]; }
+function syncMarkers(visible){
+  const ids=new Set(visible.map(i=>i.id));
+  Object.keys(S.markers).forEach(id=>{
+    if(!ids.has(id)){S.map.removeLayer(S.markers[id]);delete S.markers[id];}
   });
-  visible.forEach(inc => {
-    if (!inc.lat || !inc.lng) return;
-    const sel = inc.id === S.selectedId;
-    const icon = makeIcon(inc.priority, sel, inc.gang_hotspot);
-    if (S.markers[inc.id]) {
+  visible.forEach(inc=>{
+    if(!inc.lat||!inc.lng) return;
+    const sel=inc.id===S.selectedId;
+    const icon=makePin(inc.priority,sel,inc.gang_hotspot,inc.near_consulate);
+    if(S.markers[inc.id]){
       S.markers[inc.id].setIcon(icon);
     } else {
-      const m = L.marker([inc.lat, inc.lng], {icon}).addTo(S.map);
-      m.bindPopup(`
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;min-width:190px">
-          <div style="font-weight:600;font-size:13px;margin-bottom:5px">${inc.title}</div>
-          <div style="color:#94a3b8;margin-bottom:2px">📍 ${inc.location || ""}</div>
-          <div style="color:#94a3b8;margin-bottom:2px">📡 ${FEED_LABELS[inc.city] || inc.city || ""}</div>
-          ${inc.unit ? `<div style="color:#94a3b8;margin-bottom:2px">Unit: ${inc.unit}</div>` : ""}
-          ${inc.gang_hotspot ? `<div style="color:#ff8090;margin-top:5px">⚠ ${inc.gang_zone}</div>` : ""}
-          ${inc.near_consulate ? `<div style="color:#bef264;margin-top:4px">🏛 Near ${inc.consulate_country} Consulate</div>` : ""}
-          <div style="color:#64748b;margin-top:5px">${timeStr(inc.created_at)}</div>
-        </div>`);
-      m.on("click", () => selectIncident(inc.id));
-      S.markers[inc.id] = m;
+      const m=L.marker([inc.lat,inc.lng],{icon}).addTo(S.map);
+      const pri=inc.priority||"p3";
+      const badgeCss=pri==="p1"?`background:var(--red-dim);color:var(--red);border:1px solid var(--red-bdr)`:
+                     pri==="p2"?`background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber-bdr)`:
+                     pri==="medical"?`background:var(--blue-dim);color:var(--blue);border:1px solid var(--blue-bdr)`:
+                     `background:rgba(107,125,150,0.12);color:#6b7d96;border:1px solid rgba(107,125,150,0.25)`;
+      m.bindPopup(`<div style="font-family:'Space Grotesk',sans-serif;min-width:200px">
+        <span class="p-badge" style="${badgeCss}">${PRIORITY_LABELS[pri]||pri.toUpperCase()}</span>
+        <div class="p-title">${inc.title||"Incident"}</div>
+        <div class="p-row">📍 <b>${inc.location||""}</b></div>
+        <div class="p-row">📡 <b>${inc.feed||FEED_LABELS[inc.city]||""}</b></div>
+        ${inc.unit?`<div class="p-row">Unit: <b>${inc.unit}</b></div>`:""}
+        ${inc.gang_hotspot?`<div class="p-gang">⚠ ${inc.gang_zone}</div>`:""}
+        ${inc.near_consulate?`<div class="p-consulate">🏛 Near ${inc.consulate_country} Consulate</div>`:""}
+        <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--text3);margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">${timeAgo(inc.created_at)}</div>
+      </div>`);
+      m.on("click",()=>selectIncident(inc.id));
+      S.markers[inc.id]=m;
     }
   });
 }
 
-function selectIncident(id) {
-  S.selectedId = id;
-  const inc = S.incidents.find(i => i.id === id);
-  if (inc?.lat && inc?.lng) {
-    S.map.flyTo([inc.lat, inc.lng], 15, {animate:true, duration:0.7});
+function selectIncident(id){
+  S.selectedId=id;
+  const inc=S.incidents.find(i=>i.id===id);
+  if(inc?.lat&&inc?.lng){
+    S.map.flyTo([inc.lat,inc.lng],16,{animate:true,duration:0.6});
     S.markers[id]?.openPopup();
   }
-  renderFeed();
+  render();
+  // Scroll to card
+  setTimeout(()=>{
+    const el=document.querySelector(`.incident[data-id="${id}"]`);
+    el?.scrollIntoView({behavior:"smooth",block:"nearest"});
+  },100);
 }
 
-function updateStats() {
-  const all = S.incidents;
-  document.getElementById("stat-total").textContent = all.length;
-  document.getElementById("stat-p1").textContent = all.filter(i => i.priority === "p1").length;
-  document.getElementById("stat-med").textContent = all.filter(i => i.priority === "medical").length;
-}
-
-// ── FEED CHIP ACTIVITY ────────────────────────────────────────────────────────
-function updateFeedChips() {
-  const feeds = new Set(S.incidents.map(i => i.feed));
-  ["ch1","ch2","ch3","ch4","ch5","ch6"].forEach(ch => {
-    const el = document.getElementById("chip-" + ch);
-    if (el) el.classList.toggle("active",
-      feeds.has("BPD CH" + ch.slice(2) + " — Special Event") ||
-      feeds.has("BPD CH" + ch.slice(2) + " — Area A") ||
-      feeds.has("BPD CH" + ch.slice(2) + " — Roxbury/Mattapan") ||
-      feeds.has("BPD CH" + ch.slice(2) + " — West Roxbury") ||
-      feeds.has("BPD CH" + ch.slice(2) + " — Back Bay") ||
-      feeds.has("BPD CH" + ch.slice(2) + " — South Boston/Dorchester")
-    );
-  });
+function updateStats(){
+  const all=S.incidents;
+  document.getElementById("stat-total").innerHTML=`<b>${all.length}</b> total`;
+  document.getElementById("stat-p1").innerHTML=`<b>${all.filter(i=>i.priority==="p1").length}</b> p1`;
+  document.getElementById("stat-med").innerHTML=`<b>${all.filter(i=>i.priority==="medical").length}</b> med`;
 }
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
-function showToast(inc) {
-  const col = inc.priority === "p1" ? "var(--p1)" : inc.priority === "medical" ? "var(--med)" : "var(--p2)";
-  const el = document.createElement("div");
-  el.className = `toast${inc.priority === "p1" || inc.gang_hotspot ? " p1-toast" : ""}`;
-  el.innerHTML = `
-    <div class="t-row">
-      <div class="t-dot" style="background:${col}"></div>
-      <div class="t-title">${inc.title || "Incident"}</div>
-    </div>
-    <div class="t-sub">${inc.location || ""} · ${FEED_LABELS[inc.city] || inc.feed || ""}</div>`;
-  document.getElementById("toast-container").appendChild(el);
-  el.addEventListener("click", () => { selectIncident(inc.id); el.remove(); });
-  setTimeout(() => { el.style.opacity="0"; el.style.transform="translateX(110%)"; el.style.transition="all 0.3s"; setTimeout(()=>el.remove(),300); },
-    inc.priority === "p1" ? 12000 : 7000);
+function showToast(inc){
+  const col=PRIORITY_COLORS[inc.priority||"p3"]||"var(--text3)";
+  const el=document.createElement("div");
+  el.className=`toast${inc.gang_hotspot?" gang-toast":""}${inc.near_consulate?" consulate-toast":""}`;
+  el.innerHTML=`<div class="t-dot" style="background:${col}"></div>
+    <div><div class="t-city">${inc.feed||FEED_LABELS[inc.city]||""}</div>
+    <div class="t-title">${inc.title||"Incident"}</div>
+    <div class="t-loc">${inc.location||""}</div>
+    ${inc.gang_hotspot?`<div class="t-gang">⚠ ${inc.gang_zone}</div>`:""}
+    ${inc.near_consulate?`<div class="t-gang" style="color:var(--lime)">🏛 Near ${inc.consulate_country}</div>`:""}
+    </div>`;
+  document.getElementById("toast-wrap").appendChild(el);
+  el.addEventListener("click",()=>{selectIncident(inc.id);el.remove();});
+  const ttl=inc.priority==="p1"?12000:7000;
+  setTimeout(()=>{el.style.opacity="0";el.style.transform="translateX(20px)";el.style.transition="all 0.3s";setTimeout(()=>el.remove(),300);},ttl);
 }
 
-// ── FILTER CHIPS ──────────────────────────────────────────────────────────────
-document.querySelectorAll(".chip[data-f]").forEach(chip => {
-  chip.addEventListener("click", () => {
-    document.querySelectorAll(".chip[data-f]").forEach(c => c.classList.remove("active"));
-    chip.classList.add("active");
-    S.filter = chip.dataset.f;
-    renderFeed();
-  });
-});
+// ── CONSULATES ────────────────────────────────────────────────────────────────
+async function loadConsulateMarkers(){
+  try {
+    const cons = await SB.query("boston_consulates?select=*&limit=100");
+    cons.forEach(c=>{
+      if(!c.lat||!c.lng) return;
+      const icon=L.divIcon({
+        className:"",
+        html:`<div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid var(--lime);filter:drop-shadow(0 0 3px rgba(190,242,100,0.5));"></div>`,
+        iconSize:[12,10],iconAnchor:[6,10]
+      });
+      const m=L.marker([parseFloat(c.lat),parseFloat(c.lng)],{icon,zIndexOffset:-100}).addTo(S.map);
+      m.bindPopup(`<div style="font-family:'Space Grotesk',sans-serif;min-width:180px">
+        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--lime);font-weight:700;margin-bottom:5px;letter-spacing:1px">🏛 CONSULATE GENERAL</div>
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px">${c.country}</div>
+        <div style="color:var(--text2);font-size:11px;margin-bottom:2px">${c.address||""}</div>
+        ${c.consul?`<div style="color:var(--text3);font-size:10px;font-family:'Space Mono',monospace;margin-top:4px">${c.consul}</div>`:""}
+      </div>`);
+      S.consulateMarkers.push(m);
+    });
+  } catch(e){console.log("[Consulates]",e.message);}
+}
 
-document.querySelectorAll(".chip[data-feed]").forEach(chip => {
-  chip.addEventListener("click", () => {
-    document.querySelectorAll(".chip[data-feed]").forEach(c => c.classList.remove("active"));
-    chip.classList.add("active");
-    S.feedFilter = chip.dataset.feed;
-    renderFeed();
-  });
+// ── HEATMAP ───────────────────────────────────────────────────────────────────
+document.getElementById("heatmap-btn").addEventListener("click",async()=>{
+  const btn=document.getElementById("heatmap-btn");
+  const legend=document.getElementById("heatmap-legend");
+  btn.classList.toggle("active");
+  if(btn.classList.contains("active")){
+    if(!S.heatLayer){
+      try {
+        let pts=[];
+        try{ pts=await SB.query("boston_heatmap_points?select=lat,lng,weight&limit=5000"); }catch(e){}
+        if(!pts.length){
+          const incs=await SB.query(`${TABLE}?select=lat,lng,priority&lat=not.is.null&limit=2000`);
+          pts=incs.map(i=>({lat:i.lat,lng:i.lng,weight:i.priority==="p1"?3:i.priority==="medical"?2:1}));
+        }
+        if(pts.length&&window.L.heatLayer){
+          S.heatLayer=L.heatLayer(
+            pts.map(p=>[parseFloat(p.lat),parseFloat(p.lng),p.weight||1]),
+            {radius:20,blur:25,maxZoom:17,gradient:{0.3:"#1d4ed8",0.5:"#f59e0b",0.75:"#ef4444",1:"#fff"}}
+          ).addTo(S.map);
+          legend.style.display="block";
+        }
+      } catch(e){btn.classList.remove("active");}
+    } else {
+      S.heatLayer.addTo(S.map);
+      legend.style.display="block";
+    }
+  } else {
+    if(S.heatLayer) S.map.removeLayer(S.heatLayer);
+    legend.style.display="none";
+  }
 });
 
 // ── SEARCH ────────────────────────────────────────────────────────────────────
-async function doSearch() {
-  const q = document.getElementById("search-input").value.trim();
-  if (!q) return;
+async function doSearch(){
+  const q=document.getElementById("addr-input").value.trim();
+  if(!q) return;
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q+", Massachusetts")}&limit=1`);
-    const res = await r.json();
-    if (!res.length) { alert("Location not found in Massachusetts"); return; }
-    const {lat, lon} = res[0];
-    S.searchCenter = [parseFloat(lat), parseFloat(lon)];
-    if (S.searchCircle) S.map.removeLayer(S.searchCircle);
-    if (S.searchMarker) S.map.removeLayer(S.searchMarker);
-    S.searchCircle = L.circle(S.searchCenter, {radius:8047, color:"var(--msp-gold)", fillOpacity:0.05, weight:1.5}).addTo(S.map);
-    S.searchMarker = L.marker(S.searchCenter, {icon: L.divIcon({
+    const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q+", Boston Massachusetts")}&limit=1`);
+    const res=await r.json();
+    if(!res.length){alert("Location not found");return;}
+    const {lat,lon,display_name}=res[0];
+    S.searchCenter=[parseFloat(lat),parseFloat(lon)];
+    if(S.searchCircle) S.map.removeLayer(S.searchCircle);
+    if(S.searchMarker) S.map.removeLayer(S.searchMarker);
+    S.searchCircle=L.circle(S.searchCenter,{radius:8047,color:"var(--gold)",fillOpacity:0.05,weight:1.5}).addTo(S.map);
+    S.searchMarker=L.marker(S.searchCenter,{icon:L.divIcon({
       className:"",
-      html:`<div style="width:14px;height:14px;border-radius:50%;background:var(--msp-gold);border:2px solid #fff;box-shadow:0 0 8px #c8a84b80;"></div>`,
-      iconSize:[14,14],iconAnchor:[7,7]
+      html:`<div style="width:12px;height:12px;border-radius:50%;background:var(--gold);border:2px solid #fff;box-shadow:0 0 8px rgba(245,200,66,0.6);"></div>`,
+      iconSize:[12,12],iconAnchor:[6,6]
     })}).addTo(S.map);
-    S.map.flyTo(S.searchCenter, 13);
-    document.getElementById("search-clear").style.display = "inline-block";
-    renderFeed();
-  } catch(e) { console.error(e); }
+    S.map.flyTo(S.searchCenter,14);
+    document.getElementById("clear-btn").classList.add("visible");
+    document.getElementById("radius-status").textContent=`5mi radius around ${display_name.split(",")[0]}`;
+    document.getElementById("radius-status").classList.add("visible");
+    render();
+  } catch(e){console.error(e);}
 }
-document.getElementById("search-btn").addEventListener("click", doSearch);
-document.getElementById("search-input").addEventListener("keydown", e => { if(e.key==="Enter") doSearch(); });
-document.getElementById("search-clear").addEventListener("click", () => {
-  S.searchCenter = null;
-  if (S.searchCircle) { S.map.removeLayer(S.searchCircle); S.searchCircle = null; }
-  if (S.searchMarker) { S.map.removeLayer(S.searchMarker); S.searchMarker = null; }
-  document.getElementById("search-clear").style.display = "none";
-  document.getElementById("search-input").value = "";
-  renderFeed();
+document.getElementById("search-btn").addEventListener("click",doSearch);
+document.getElementById("addr-input").addEventListener("keydown",e=>{if(e.key==="Enter")doSearch();});
+document.getElementById("clear-btn").addEventListener("click",()=>{
+  S.searchCenter=null;
+  if(S.searchCircle){S.map.removeLayer(S.searchCircle);S.searchCircle=null;}
+  if(S.searchMarker){S.map.removeLayer(S.searchMarker);S.searchMarker=null;}
+  document.getElementById("clear-btn").classList.remove("visible");
+  document.getElementById("radius-status").classList.remove("visible");
+  document.getElementById("addr-input").value="";
+  render();
+});
+
+// ── FILTER CHIPS ──────────────────────────────────────────────────────────────
+document.querySelectorAll(".chip[data-f]").forEach(c=>{
+  c.addEventListener("click",()=>{
+    document.querySelectorAll(".chip[data-f]").forEach(x=>x.classList.remove("active"));
+    c.classList.add("active");
+    S.filter=c.dataset.f;
+    render();
+  });
+});
+document.querySelectorAll(".chip[data-feed]").forEach(c=>{
+  c.addEventListener("click",()=>{
+    document.querySelectorAll(".chip[data-feed]").forEach(x=>x.classList.remove("active"));
+    c.classList.add("active");
+    S.feedFilter=c.dataset.feed;
+    render();
+  });
 });
 
 // ── CLOCK ─────────────────────────────────────────────────────────────────────
-setInterval(() => {
-  document.getElementById("clock").textContent =
+setInterval(()=>{
+  document.getElementById("clock").textContent=
     new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:true});
-}, 1000);
+},1000);
 
-// ── POLLING FALLBACK ──────────────────────────────────────────────────────────
-let lastPoll = new Date(Date.now() - 3600000).toISOString();
-async function poll() {
+// ── POLLING ───────────────────────────────────────────────────────────────────
+let lastPoll=new Date(Date.now()-3600000).toISOString();
+async function poll(){
   try {
-    const rows = await SB.query(`${CONFIG.TABLE}?select=*&order=created_at.desc&created_at=gt.${lastPoll}&limit=50`);
-    rows.forEach(row => {
-      if (!S.incidents.find(i => i.id === row.id)) {
-        row.lat = parseFloat(row.lat); row.lng = parseFloat(row.lng);
-        S.incidents.unshift(row);
-        if (S.incidents.length > 500) S.incidents = S.incidents.slice(0,500);
-        showToast(row);
-      }
-    });
-    if (rows.length) { lastPoll = rows[0].created_at; renderFeed(); updateFeedChips(); }
-  } catch(e) { console.log("[Poll]",e.message); }
+    const rows=await SB.query(`${TABLE}?select=*&order=created_at.desc&created_at=gt.${lastPoll}&limit=50`);
+    if(rows.length){
+      rows.forEach(r=>{
+        r.lat=parseFloat(r.lat);r.lng=parseFloat(r.lng);
+        if(!S.incidents.find(i=>i.id===r.id)){
+          S.incidents.unshift(r);
+          S.newIds.add(r.id);
+          setTimeout(()=>{S.newIds.delete(r.id);render();},5000);
+          showToast(r);
+        }
+      });
+      lastPoll=rows[0].created_at;
+      if(S.incidents.length>500) S.incidents=S.incidents.slice(0,500);
+      render();
+    }
+  } catch(e){console.log("[Poll]",e.message);}
 }
-setInterval(poll, 30000);
+setInterval(poll,30000);
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
-async function loadFugitiveMarkers() {
-  if (S.fugitiveMarkers?.length) return;
-  S.fugitiveMarkers = [];
-  try {
-    const fugs = await SB.query("boston_fugitives?select=*&lat=not.is.null&limit=100");
-    fugs.forEach(f => {
-      if (!f.lat || !f.lng) return;
-      const icon = L.divIcon({
-        className: "",
-        html: `<div style="width:12px;height:12px;border-radius:50%;background:#ef4444;border:2px solid #fca5a5;box-shadow:0 0 8px rgba(239,68,68,0.7);display:flex;align-items:center;justify-content:center;font-size:7px;">🚨</div>`,
-        iconSize: [12,12], iconAnchor: [6,6],
-      });
-      const m = L.marker([parseFloat(f.lat), parseFloat(f.lng)], {icon}).addTo(S.map);
-      // Use name if available, otherwise use charges as title
-      const fugTitle = (f.name && f.name.length > 3 && !f.name.includes('Have You Seen'))
-        ? f.name
-        : (f.charges || 'Unknown Fugitive');
-      const fugSub = (f.name && f.name.includes('Have You Seen'))
-        ? f.charges
-        : f.address;
-      m.bindPopup(`
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;min-width:200px">
-          <div style="font-weight:600;margin-bottom:4px;color:#ef4444;font-size:10px;letter-spacing:0.08em">🚨 WANTED — ${(f.source || '').toUpperCase()}</div>
-          <div style="font-weight:600;margin-bottom:4px;font-size:12px;color:#f1f5f9">${fugTitle}</div>
-          ${fugSub ? `<div style="color:#94a3b8;margin-bottom:2px">${fugSub}</div>` : ''}
-          ${f.address && !f.name?.includes('Have You') ? `<div style="color:#94a3b8;margin-bottom:2px">📍 ${f.address}</div>` : ''}
-          ${f.source_url ? `<div style="margin-top:6px"><a href="${f.source_url}" target="_blank" style="color:#6b9ff0;font-size:10px">View details →</a></div>` : ''}
-        </div>`);
-      S.fugitiveMarkers.push(m);
-    });
-    console.log(`[Fugitives] ${S.fugitiveMarkers.length} fugitives mapped`);
-  } catch(e) { console.log("[Fugitives]", e.message); }
-}
-
-async function loadConsulateMarkers() {
-  try {
-    const consulates = await SB.query("boston_consulates?select=*&limit=100");
-    consulates.forEach(c => {
-      if (!c.lat || !c.lng) return;
-      const icon = L.divIcon({
-        className: "",
-        html: `<div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid #bef264;filter:drop-shadow(0 0 3px rgba(190,242,100,0.5));"></div>`,
-        iconSize: [12,10], iconAnchor: [6,10],
-      });
-      const m = L.marker([parseFloat(c.lat), parseFloat(c.lng)], {icon, zIndexOffset: -100}).addTo(S.map);
-      m.bindPopup(`
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;min-width:180px">
-          <div style="font-weight:600;margin-bottom:4px">🏛 ${c.country}</div>
-          <div style="color:#94a3b8;margin-bottom:2px">${c.type}</div>
-          <div style="color:#94a3b8">${c.address}</div>
-          ${c.consul ? `<div style="color:#64748b;margin-top:4px">${c.consul}</div>` : ""}
-        </div>`);
-    });
-    console.log(`[Consulates] ${consulates.length} diplomatic facilities mapped`);
-  } catch(e) { console.log("[Consulates]", e.message); }
-}
-
-// ── BUTTON HANDLERS ──────────────────────────────────────────────────────────
-document.getElementById("btn-heatmap").addEventListener("click", async () => {
-  const btn = document.getElementById("btn-heatmap");
-  btn.classList.toggle("active");
-  if (btn.classList.contains("active")) {
-    if (!S.heatLayer) {
-      try {
-        // Try dedicated heatmap table first, fall back to scanner incidents
-        let pts = [];
-        try {
-          pts = await SB.query("boston_heatmap_points?select=lat,lng,weight&limit=5000");
-        } catch(e) {}
-        if (!pts.length) {
-          // Build heatmap from scanner incidents
-          const incs = await SB.query("boston_scanner_incidents?select=lat,lng,priority&lat=not.is.null&limit=2000");
-          pts = incs.map(i => ({
-            lat: i.lat, lng: i.lng,
-            weight: i.priority === "p1" ? 3 : i.priority === "medical" ? 2 : 1
-          }));
-        }
-        if (pts.length && window.L.heatLayer) {
-          S.heatLayer = L.heatLayer(
-            pts.map(p => [parseFloat(p.lat), parseFloat(p.lng), p.weight || 1]),
-            {radius:20, blur:25, maxZoom:17, gradient:{0.3:"#1d4ed8",0.5:"#f59e0b",0.75:"#ef4444",1:"#fff"}}
-          ).addTo(S.map);
-        } else if (!window.L.heatLayer) {
-          alert("Heatmap plugin not loaded. Please refresh the page.");
-          btn.classList.remove("active");
-        } else {
-          alert("No incident data available for heatmap yet.");
-          btn.classList.remove("active");
-        }
-      } catch(e) { console.error("[Heatmap]", e); btn.classList.remove("active"); }
-    } else {
-      S.heatLayer.addTo(S.map);
-    }
-  } else {
-    if (S.heatLayer) S.map.removeLayer(S.heatLayer);
-  }
-});
-
-document.getElementById("btn-fugitives").addEventListener("click", async () => {
-  const btn = document.getElementById("btn-fugitives");
-  btn.classList.toggle("active");
-  if (btn.classList.contains("active")) {
-    await loadFugitiveMarkers();
-  } else {
-    S.fugitiveMarkers?.forEach(m => S.map.removeLayer(m));
-    S.fugitiveMarkers = [];
-  }
-});
-
-async function boot() {
+async function boot(){
   initMap();
-  document.getElementById("boot-msg").textContent = "Loading MSP scanner incidents…";
+  await loadConsulateMarkers();
   try {
-    const rows = await SB.query(`${CONFIG.TABLE}?select=*&order=created_at.desc&limit=200`);
-    S.incidents = rows.map(i => ({...i, lat:parseFloat(i.lat), lng:parseFloat(i.lng)}));
-    document.getElementById("boot").classList.add("gone");
-    renderFeed();
-    updateFeedChips();
-    // Load and display consulate markers
-    loadConsulateMarkers();
-    SB.subscribe(row => {
-      row.lat = parseFloat(row.lat); row.lng = parseFloat(row.lng);
-      if (!S.incidents.find(i => i.id === row.id)) {
+    const rows=await SB.query(`${TABLE}?select=*&order=created_at.desc&limit=200`);
+    S.incidents=rows.map(r=>({...r,lat:parseFloat(r.lat),lng:parseFloat(r.lng)}));
+    document.getElementById("boot-overlay").style.display="none";
+    render();
+    SB.subscribe(row=>{
+      row.lat=parseFloat(row.lat);row.lng=parseFloat(row.lng);
+      if(!S.incidents.find(i=>i.id===row.id)){
         S.incidents.unshift(row);
-        if (S.incidents.length > 500) S.incidents = S.incidents.slice(0,500);
+        S.newIds.add(row.id);
+        setTimeout(()=>{S.newIds.delete(row.id);render();},5000);
         showToast(row);
-        renderFeed();
-        updateFeedChips();
+        if(S.incidents.length>500) S.incidents=S.incidents.slice(0,500);
+        render();
       }
     });
-    setTimeout(poll, 10000);
-  } catch(err) {
-    document.getElementById("boot-msg").innerHTML = `<span style="color:var(--p1)">${err.message}</span>`;
-    document.querySelector(".spinner").style.display = "none";
+    setTimeout(poll,15000);
+  } catch(err){
+    document.getElementById("boot-msg").textContent=err.message;
   }
 }
 boot();
