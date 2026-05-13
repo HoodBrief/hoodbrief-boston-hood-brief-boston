@@ -27,17 +27,10 @@ MAX_RETRIES      = 3
 # When tokens expire, update these variables in Railway (no code change needed)
 # Get fresh URLs from: broadcastify.com/listen/feed/FEEDID -> DevTools -> Network -> .mp3
 # BPD worker URL — Cloudflare Worker proxying RapidSOS WebSocket
-RAPIDSOS_COOKIE  = os.environ.get("RAPIDSOS_COOKIE", "")
 RELAY_SECRET     = os.environ.get("RELAY_SECRET", "hoodbrief")
 RELAY_PORT       = int(os.environ.get("RELAY_PORT", "8080"))
 
-CITIES = {
-    "eastern_ma": {
-        "label":      "MSP Eastern MA",
-        "stream_url": os.environ.get("STREAM_URL_EASTERN", "https://listen.broadcastify.com/hm0rd2jq85x1tk3.mp3?nc=92154&xan=xtf9912b"),
-        "center":     (42.4673, -71.0180),
-    },
-}
+CITIES = {}  # All feeds via BPD relay — no direct Broadcastify streams
 
 # ── MSP 10-Code Translation ───────────────────────────────────────────────────
 # MSP uses a different system from Memphis — codes 1-22+ not 10-XX format
@@ -831,11 +824,11 @@ class BPDAudioHandler(BaseHTTPRequestHandler):
         # Process in background thread so HTTP response isn't delayed
         threading.Thread(
             target=process_relay_audio,
-            args=(audio_bytes,),
+            args=(audio_bytes, channel),
             daemon=True
         ).start()
 
-def process_relay_audio(audio_bytes):
+def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
     """Transcribe and parse BPD relay audio chunk."""
     tmp_in = None
     try:
@@ -951,8 +944,9 @@ def process_relay_audio(audio_bytes):
         hotspot, zone = check_hotspot(transcript)
         near_con, consulate = check_diplomatic_proximity(coords[0], coords[1])
 
+        ch_label = getattr(process_relay_audio, '_channel', 'Boston PD — All Districts')
         save_incident(parsed, "bpd_scan", transcript, transcript,
-                      hotspot, zone, "Boston PD — All Districts",
+                      hotspot, zone, ch_label,
                       near_con, consulate)
 
         print(f"  [BPD Relay] ✅ Saved: [{parsed['priority'].upper()}] {parsed['title']} @ {parsed['location']}")
