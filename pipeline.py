@@ -979,24 +979,16 @@ def run_fugitives():
 
 # ── Heatmap Loader ────────────────────────────────────────────────────────────
 def run_heatmap():
-    """Load heatmap from historical Boston incident data (runs once at startup)."""
-    try:
-        r = requests.get(
-            f"{SUPABASE_URL}/rest/v1/boston_heatmap_points?select=count&limit=1",
-            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
-            timeout=10,
-        )
-        data = r.json()
-        if data and len(data) > 0:
-            print("[Heatmap] Already populated — skipping reload")
-            return
-    except Exception:
-        pass
-    try:
-        from boston_heatmap import run as load_heatmap
-        load_heatmap()
-    except Exception as e:
-        print(f"[Heatmap] Error: {e}")
+    """Rebuild heatmap from BPD open data weekly."""
+    import time as _time
+    while True:
+        try:
+            from boston_heatmap import run as load_heatmap
+            load_heatmap()
+        except Exception as e:
+            print(f"[Heatmap] Error: {e}")
+        print("[Heatmap] Next refresh in 7 days")
+        _time.sleep(7 * 24 * 3600)
 
 if __name__ == "__main__":
     print("╔══════════════════════════════════════════╗")
