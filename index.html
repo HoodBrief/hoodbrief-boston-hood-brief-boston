@@ -250,8 +250,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
   </div>
   <div class="divider"></div>
   <div id="feed-labels">
-    <div class="feed-chip" id="chip-bpd">BPD CH 1-6</div>
-    <div class="feed-chip" id="chip-eastern">MSP EASTERN</div>
+    <div class="feed-chip" id="chip-ch3">CH3 ROXBURY</div>
+    <div class="feed-chip" id="chip-ch6">CH6 DORCHESTER</div>
+    <div class="feed-chip" id="chip-ch4">CH4 W.ROXBURY</div>
+    <div class="feed-chip" id="chip-ch5">CH5 BACK BAY</div>
+    <div class="feed-chip" id="chip-ch2">CH2 AREA A</div>
+    <div class="feed-chip" id="chip-ch1">CH1 SPECIAL</div>
   </div>
   <div class="live-badge" id="live-badge">● LIVE</div>
   <div id="header-right">
@@ -280,8 +284,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 </div>
 <div id="filter-feed" class="filter-row">
   <div class="chip active" data-feed="all">All Feeds</div>
-  <div class="chip" data-feed="bpd_scan">🚔 BPD All Districts</div>
-  <div class="chip" data-feed="eastern_ma">🛡 MSP Eastern MA</div>
+  <div class="chip" data-feed="bpd_ch3">CH3 Roxbury/Mattapan</div>
+  <div class="chip" data-feed="bpd_ch6">CH6 South Boston/Dorchester</div>
+  <div class="chip" data-feed="bpd_ch4">CH4 West Roxbury/Hyde Park</div>
+  <div class="chip" data-feed="bpd_ch5">CH5 Back Bay/South End</div>
+  <div class="chip" data-feed="bpd_ch2">CH2 Area A Downtown</div>
+  <div class="chip" data-feed="bpd_ch1">CH1 Special Event</div>
 </div>
 
 <div id="main">
@@ -298,7 +306,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
       <div><div class="stat-val" id="stat-p1">0</div><div class="stat-label">PRIORITY 1</div></div>
       <div><div class="stat-val" id="stat-med">0</div><div class="stat-label">MEDICAL</div></div>
     </div>
-    <div id="map-attr">BPD via RapidSOS (delayed) · MSP Eastern MA via Broadcastify</div>
+    <div id="map-attr">BPD CH1-6 via RapidSOS · Oracle VM relay</div>
   </div>
 </div>
 <div id="toast-container"></div>
@@ -313,8 +321,13 @@ const CONFIG = {
 };
 
 const FEED_LABELS = {
-  bpd_scan:   "BPD — All Districts",
-  eastern_ma: "MSP Eastern MA",
+  bpd_scan: "BPD — All Districts",
+  bpd_ch1:  "BPD CH1 — Special Event",
+  bpd_ch2:  "BPD CH2 — Area A",
+  bpd_ch3:  "BPD CH3 — Roxbury/Mattapan",
+  bpd_ch4:  "BPD CH4 — West Roxbury",
+  bpd_ch5:  "BPD CH5 — Back Bay",
+  bpd_ch6:  "BPD CH6 — South Boston/Dorchester",
 };
 
 // Feeds with rebroadcast delay
@@ -497,9 +510,18 @@ function updateStats() {
 
 // ── FEED CHIP ACTIVITY ────────────────────────────────────────────────────────
 function updateFeedChips() {
-  const feeds = new Set(S.incidents.map(i => i.city));
-  document.getElementById("chip-bpd").classList.toggle("active", feeds.has("bpd_scan"));
-  document.getElementById("chip-eastern").classList.toggle("active", feeds.has("eastern_ma"));
+  const feeds = new Set(S.incidents.map(i => i.feed));
+  ["ch1","ch2","ch3","ch4","ch5","ch6"].forEach(ch => {
+    const el = document.getElementById("chip-" + ch);
+    if (el) el.classList.toggle("active",
+      feeds.has("BPD CH" + ch.slice(2) + " — Special Event") ||
+      feeds.has("BPD CH" + ch.slice(2) + " — Area A") ||
+      feeds.has("BPD CH" + ch.slice(2) + " — Roxbury/Mattapan") ||
+      feeds.has("BPD CH" + ch.slice(2) + " — West Roxbury") ||
+      feeds.has("BPD CH" + ch.slice(2) + " — Back Bay") ||
+      feeds.has("BPD CH" + ch.slice(2) + " — South Boston/Dorchester")
+    );
+  });
 }
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
