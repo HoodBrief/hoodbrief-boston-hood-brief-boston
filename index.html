@@ -260,6 +260,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
   <div class="live-badge" id="live-badge">● LIVE</div>
   <div id="header-right">
     <button class="hdr-btn" id="btn-heatmap">Heat Map</button>
+    <button class="hdr-btn" id="btn-fugitives">Fugitives</button>
     <div id="conn-dot"></div>
     <div id="clock"></div>
   </div>
@@ -267,7 +268,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 
 <div id="delay-bar">
   <span class="delay-icon">⚠</span>
-  <span class="delay-text">BPD feed rebroadcast via RapidSOS — slight delay by design &nbsp;·&nbsp; MSP feeds live via Broadcastify</span>
+  <span class="delay-text">BPD feeds rebroadcast via RapidSOS — slight delay by design &nbsp;·&nbsp; 6 districts monitored 24/7</span>
 </div>
 <div id="search-bar">
   <input id="search-input" type="text" placeholder="Search address or Massachusetts town…">
@@ -337,6 +338,7 @@ const PIN_COL = {p1:"#e8394a", p2:"#f0922b", medical:"#2d8cf0"};
 
 const S = {
   incidents: [], markers: {}, filter: "all", feedFilter: "all",
+  fugitiveMarkers: [],
   selectedId: null, map: null, searchCenter: null, searchCircle: null,
   searchMarker: null,
 };
@@ -619,6 +621,34 @@ async function poll() {
 setInterval(poll, 30000);
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
+async function loadFugitiveMarkers() {
+  if (S.fugitiveMarkers?.length) return;
+  S.fugitiveMarkers = [];
+  try {
+    const fugs = await SB.query("boston_fugitives?select=*&lat=not.is.null&limit=100");
+    fugs.forEach(f => {
+      if (!f.lat || !f.lng) return;
+      const icon = L.divIcon({
+        className: "",
+        html: `<div style="width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 0 8px rgba(239,68,68,0.6)"></div>`,
+        iconSize: [10,10], iconAnchor: [5,5],
+      });
+      const m = L.marker([parseFloat(f.lat), parseFloat(f.lng)], {icon}).addTo(S.map);
+      m.bindPopup(`
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;min-width:180px">
+          <div style="font-weight:600;margin-bottom:4px;color:#ef4444">🚨 FUGITIVE</div>
+          <div style="font-weight:600;margin-bottom:3px">${f.name || 'Unknown'}</div>
+          <div style="color:#94a3b8;margin-bottom:2px">${f.charges || ''}</div>
+          <div style="color:#94a3b8;margin-bottom:2px">${f.address || ''}</div>
+          <div style="color:#64748b;margin-top:4px">Source: ${f.source?.toUpperCase() || ''}</div>
+          ${f.source_url ? `<div style="margin-top:4px"><a href="${f.source_url}" target="_blank" style="color:#6b9ff0">More info →</a></div>` : ''}
+        </div>`);
+      S.fugitiveMarkers.push(m);
+    });
+    console.log(`[Fugitives] ${S.fugitiveMarkers.length} fugitives mapped`);
+  } catch(e) { console.log("[Fugitives]", e.message); }
+}
+
 async function loadConsulateMarkers() {
   try {
     const consulates = await SB.query("boston_consulates?select=*&limit=100");
