@@ -816,11 +816,11 @@ class BPDAudioHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
-       if len(audio_bytes) < 1000:
+        if len(audio_bytes) < 1000:
             return
 
         channel = self.headers.get("X-Channel-Label", "Boston PD — All Districts")
-        print(f"[BPD Relay] Received {len(audio_bytes):,} bytes from Oracle VM [{channel}]")
+        print(f"[BPD Relay] Received {len(audio_bytes):,} bytes from Oracle VM")
 
         # Process in background thread so HTTP response isn't delayed
         threading.Thread(
