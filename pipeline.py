@@ -978,17 +978,13 @@ def run_fugitives():
         time.sleep(7 * 24 * 3600)  # weekly
 
 # ── Heatmap Loader ────────────────────────────────────────────────────────────
-def run_heatmap():
-    """Rebuild heatmap from BPD open data weekly."""
-    import time as _time
-    while True:
-        try:
-            from boston_heatmap import run as load_heatmap
-            load_heatmap()
-        except Exception as e:
-            print(f"[Heatmap] Error: {e}")
-        print("[Heatmap] Next refresh in 7 days")
-        _time.sleep(7 * 24 * 3600)
+def run_ckan_updater():
+    """Daily BPD CKAN incident sync + weekly heatmap rebuild."""
+    try:
+        from boston_ckan_updater import run as ckan_run
+        ckan_run()
+    except Exception as e:
+        print(f"[CKAN] Error: {e}")
 
 if __name__ == "__main__":
     print("╔══════════════════════════════════════════╗")
@@ -1016,9 +1012,9 @@ if __name__ == "__main__":
     print("  ✓ Started: Diplomatic facility loader")
 
     # Heatmap — load once at startup
-    t_heatmap = threading.Thread(target=run_heatmap, daemon=True, name="heatmap")
+    t_heatmap = threading.Thread(target=run_ckan_updater, daemon=True, name="heatmap")
     t_heatmap.start()
-    print("  ✓ Started: Heatmap loader")
+    print("  ✓ Started: CKAN updater + heatmap")
 
     # Fugitives — scrape weekly
     t_fugs = threading.Thread(target=run_fugitives, daemon=True, name="fugitives")
