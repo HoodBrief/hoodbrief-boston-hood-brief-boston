@@ -79,9 +79,15 @@ def frames_to_wav(frames, label):
         print(f"  [{label}] error: {e}")
         return None
     finally:
-        for p in [tmp_ogg, tmp_wav]:
-            try: os.unlink(p)
-            except: pass
+        try: os.unlink(tmp_ogg)
+        except: pass
+        # Keep latest WAV for inspection
+        try:
+            import shutil
+            shutil.copy2(tmp_wav, '/tmp/bpd_sample.wav')
+        except: pass
+        try: os.unlink(tmp_wav)
+        except: pass
 
 def relay(frames, channel_key, label):
     if len(frames) < MIN_FRAMES:
