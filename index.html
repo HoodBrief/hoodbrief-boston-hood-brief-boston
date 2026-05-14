@@ -69,6 +69,8 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 .map-btn{padding:4px 8px;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;border-radius:3px;border:1px solid var(--border2);color:var(--text2);background:transparent;cursor:pointer;transition:all 0.15s;flex-shrink:0;white-space:nowrap;}
 .map-btn.active{color:var(--bg);border-color:transparent;}
 #heatmap-btn.active{background:var(--red);}
+#monitor-btn.active{background:var(--green);color:var(--bg);}
+#monitor-status{position:fixed;bottom:50px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(6,8,15,0.95);border:1px solid var(--green-bdr);border-radius:5px;padding:6px 14px;font-family:var(--mono);font-size:10px;color:var(--green);display:none;pointer-events:none;}
 #clock{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--text3);font-variant-numeric:tabular-nums;}
 #conn-dot{width:7px;height:7px;border-radius:50%;background:var(--text3);transition:all 0.4s;flex-shrink:0;}
 #conn-dot.ok{background:var(--green);box-shadow:0 0 5px var(--green);}
@@ -146,6 +148,11 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 
 /* MAP */
 .leaflet-container{background:#040608;}
+.district-tooltip{
+  font-family:'Space Mono',monospace;font-size:10px;font-weight:700;
+  background:rgba(6,8,15,0.85);border:none;color:#e2e8f4;
+  padding:3px 7px;border-radius:3px;letter-spacing:0.5px;
+}
 #radius-banner{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(6,8,15,0.92);border:1px solid var(--gold-bdr);border-radius:5px;padding:6px 14px;font-family:var(--mono);font-size:11px;color:var(--gold);white-space:nowrap;display:none;pointer-events:none;}
 .stat-pill{background:rgba(6,8,15,0.88);border:1px solid var(--border2);border-radius:3px;padding:4px 10px;font-family:var(--mono);font-size:10px;letter-spacing:0.5px;color:var(--text2);text-transform:uppercase;}
 .stat-pill b{color:var(--gold);}
@@ -211,6 +218,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
     <div class="delayed-badge"><div class="delayed-dot"></div>DELAYED</div>
     <div style="margin-left:6px;font-family:var(--mono);font-size:9px;color:var(--text3);">BPD via RapidSOS</div>
     <button class="map-btn" id="heatmap-btn">Heat Map</button>
+    <button class="map-btn" id="monitor-btn" title="Connect this browser to BPD feed for transcription">📡 Monitor</button>
     <div id="conn-dot"></div>
     <div id="clock"></div>
   </div>
@@ -236,6 +244,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
     <button class="chip" data-f="medical">🔵 Medical</button>
     <button class="chip" data-f="gang">⚠ Gang Zone</button>
     <button class="chip" data-f="consulate">🏛 Diplomatic</button>
+    <button class="chip" id="btn-districts" onclick="toggleDistricts(this)">🗺 Districts</button>
     <button class="chip" data-f="p3">⚪ Routine</button>
   </div>
 
@@ -276,6 +285,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
     </div>
   </div>
 </div>
+<div id="monitor-status"></div>
 <div id="toast-wrap"></div>
 
 <script>
@@ -418,6 +428,10 @@ function render(){
       <div class="inc-title">${inc.title||"Incident"}</div>
       <div class="inc-loc">📍 ${inc.location||""}</div>
       ${inc.unit?`<div class="inc-unit">Unit: ${inc.unit}</div>`:""}
+      ${inc.district?`<div class="inc-unit" style="color:var(--boston)">${
+        Object.entries(BPD_DISTRICTS).find(([k])=>inc.district?.toUpperCase().includes(k))?.[1]?.name
+        || inc.district
+      }</div>`:""}
       ${inc.gang_hotspot?`<div class="inc-gang-zone">⚠ ${inc.gang_zone}</div>`:""}
       ${inc.near_consulate?`<div class="inc-consulate">🏛 Near ${inc.consulate_country} Consulate</div>`:""}
     </div>`;
@@ -596,9 +610,25 @@ document.getElementById("clear-btn").addEventListener("click",()=>{
 });
 
 // ── FILTER CHIPS ──────────────────────────────────────────────────────────────
+function toggleDistricts(btn){
+  btn.classList.toggle("active");
+  document.querySelectorAll(".leaflet-interactive").forEach(el => {
+    if(el.closest(".leaflet-overlay-pane"))
+      el.style.display = btn.classList.contains("active") ? "" : "none";
+  });
+}
+
 document.querySelectorAll(".chip[data-f]").forEach(c=>{
   c.addEventListener("click",()=>{
-    document.querySelectorAll(".chip[data-f]").forEach(x=>x.classList.remove("active"));
+    function toggleDistricts(btn){
+  btn.classList.toggle("active");
+  document.querySelectorAll(".leaflet-interactive").forEach(el => {
+    if(el.closest(".leaflet-overlay-pane"))
+      el.style.display = btn.classList.contains("active") ? "" : "none";
+  });
+}
+
+document.querySelectorAll(".chip[data-f]").forEach(x=>x.classList.remove("active"));
     c.classList.add("active");
     S.filter=c.dataset.f;
     render();
@@ -642,9 +672,259 @@ async function poll(){
 }
 setInterval(poll,30000);
 
+// ── BROWSER BPD RELAY ────────────────────────────────────────────────────────
+const RELAY_URL   = "https://hoodbrief-boston-hood-brief-boston-production.up.railway.app/bpd-audio";
+const BPD_CHANNELS = {
+  "67b4a94bf07fc8198abc429a": "BPD CH2 Area A",
+  "67ffbacc750036ae85e7c395": "BPD CH3 Roxbury/Mattapan",
+  "67ffbaf8cd281dea86c07f70": "BPD CH4 West Roxbury",
+  "67ffbb16cd281dea86c07f71": "BPD CH5 Back Bay",
+  "67ffbb30f14dc59c46716089": "BPD CH6 South Boston/Dorchester",
+  "67b4a918f07fc8198abc4299": "BPD CH1 Special Event",
+};
+const SCAN_URL = "wss://radio.rapidsos.com/bff/ws/689bb05ee75d9bc528e81c79";
+
+let monitorActive = false;
+let monitorSockets = [];
+let audioCtx = null;
+
+function updateMonitorStatus(msg){
+  const el = document.getElementById("monitor-status");
+  el.textContent = msg;
+  el.style.display = msg ? "block" : "none";
+}
+
+async function decodeAndRelay(frames, channelLabel){
+  if(!frames.length) return;
+  // Concatenate all binary frames
+  const total = frames.reduce((s,f) => s + f.byteLength, 0);
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for(const f of frames){ combined.set(new Uint8Array(f), offset); offset += f.byteLength; }
+
+  // Decode with Web Audio API
+  if(!audioCtx) audioCtx = new AudioContext({sampleRate: 16000});
+  try {
+    const decoded = await audioCtx.decodeAudioData(combined.buffer.slice(0));
+    // Convert to 16-bit PCM WAV
+    const pcm = decoded.getChannelData(0);
+    const wav = encodeWAV(pcm, decoded.sampleRate);
+    // POST to Railway
+    const resp = await fetch(RELAY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/wav",
+        "X-Relay-Secret": "hoodbrief",
+        "X-Channel-Label": channelLabel,
+        "X-Source": "browser",
+      },
+      body: wav,
+    });
+    updateMonitorStatus(`📡 Sent ${Math.round(wav.byteLength/1024)}KB from ${channelLabel} → ${resp.status}`);
+    console.log(`[BPD Browser Relay] ${channelLabel}: ${resp.status}`);
+  } catch(e){
+    console.log(`[BPD Browser Relay] Decode error: ${e.message}`);
+  }
+}
+
+function encodeWAV(samples, sampleRate){
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buf);
+  const writeStr = (o,s) => { for(let i=0;i<s.length;i++) view.setUint8(o+i, s.charCodeAt(i)); };
+  writeStr(0,"RIFF");
+  view.setUint32(4, 36 + samples.length*2, true);
+  writeStr(8,"WAVE");
+  writeStr(12,"fmt ");
+  view.setUint32(16,16,true);
+  view.setUint16(20,1,true);
+  view.setUint16(22,1,true);
+  view.setUint32(24,sampleRate,true);
+  view.setUint32(28,sampleRate*2,true);
+  view.setUint16(32,2,true);
+  view.setUint16(34,16,true);
+  writeStr(36,"data");
+  view.setUint32(40,samples.length*2,true);
+  let o = 44;
+  for(let i=0;i<samples.length;i++){
+    const s = Math.max(-1,Math.min(1,samples[i]));
+    view.setInt16(o, s<0?s*0x8000:s*0x7FFF, true);
+    o += 2;
+  }
+  return buf;
+}
+
+function startMonitor(){
+  monitorActive = true;
+  document.getElementById("monitor-btn").classList.add("active");
+  document.getElementById("monitor-btn").textContent = "📡 Live";
+  updateMonitorStatus("Connecting to BPD feeds...");
+
+  // Connect to BPD SCAN (all channels)
+  const ws = new WebSocket(SCAN_URL);
+  let frames = [];
+  let currentChannel = "BPD — All Districts";
+  let transmitting = false;
+
+  ws.onopen = () => {
+    updateMonitorStatus("✅ Connected to BPD — collecting audio...");
+    // Send heartbeat
+    setInterval(() => {
+      if(ws.readyState === 1) ws.send(JSON.stringify({action:"heartbeat"}));
+    }, 10000);
+  };
+
+  ws.onmessage = async (e) => {
+    if(typeof e.data === "string"){
+      try {
+        const msg = JSON.parse(e.data);
+        if(msg.action === "tx_start"){
+          frames = [];
+          transmitting = true;
+          currentChannel = BPD_CHANNELS[msg.channelId] || "BPD — All Districts";
+          updateMonitorStatus(`📻 ${currentChannel} transmitting...`);
+        } else if(msg.action === "tx_end"){
+          transmitting = false;
+          if(frames.length > 3){
+            updateMonitorStatus(`⬆ Relaying ${frames.length} frames from ${currentChannel}...`);
+            await decodeAndRelay([...frames], currentChannel);
+          }
+          frames = [];
+        }
+      } catch{}
+    } else if(e.data instanceof ArrayBuffer || e.data instanceof Blob){
+      const buf = e.data instanceof Blob ? await e.data.arrayBuffer() : e.data;
+      if(transmitting) frames.push(buf);
+    }
+  };
+
+  ws.onerror = () => updateMonitorStatus("❌ Connection error — retrying...");
+  ws.onclose = () => {
+    if(monitorActive) setTimeout(startMonitor, 3000);
+  };
+  monitorSockets.push(ws);
+}
+
+function stopMonitor(){
+  monitorActive = false;
+  monitorSockets.forEach(ws => ws.close());
+  monitorSockets = [];
+  document.getElementById("monitor-btn").classList.remove("active");
+  document.getElementById("monitor-btn").textContent = "📡 Monitor";
+  updateMonitorStatus("");
+}
+
+document.getElementById("monitor-btn").addEventListener("click", () => {
+  if(monitorActive) stopMonitor();
+  else startMonitor();
+});
+
+// ── BOSTON POLICE DISTRICTS ───────────────────────────────────────────────────
+const BPD_DISTRICTS = {
+  A1:  {name:"A1 — Downtown/Charlestown", color:"#3b82f6", center:[42.3601,-71.0589]},
+  A7:  {name:"A7 — East Boston",          color:"#8b5cf6", center:[42.3697,-71.0393]},
+  B2:  {name:"B2 — Roxbury",              color:"#ef4444", center:[42.3251,-71.0901]},
+  B3:  {name:"B3 — Mattapan/N.Dorchester",color:"#f59e0b", center:[42.2987,-71.0792]},
+  C6:  {name:"C6 — South Boston",         color:"#10b981", center:[42.3355,-71.0479]},
+  C11: {name:"C11 — Dorchester",          color:"#f97316", center:[42.3072,-71.0579]},
+  D4:  {name:"D4 — South End/Back Bay",   color:"#ec4899", center:[42.3467,-71.0822]},
+  D14: {name:"D14 — Brighton/Allston",    color:"#14b8a6", center:[42.3538,-71.1527]},
+  E5:  {name:"E5 — West Roxbury",         color:"#a855f7", center:[42.2957,-71.1537]},
+  E13: {name:"E13 — Jamaica Plain",       color:"#06b6d4", center:[42.3099,-71.1148]},
+  E18: {name:"E18 — Hyde Park",           color:"#84cc16", center:[42.2558,-71.1253]},
+};
+
+const BPD_STATIONS = [
+  {district:"A1",  name:"Area A-1 HQ",           address:"40 New Sudbury St",    lat:42.3614, lng:-71.0576},
+  {district:"A7",  name:"Area A-7",               address:"69 Paris St",          lat:42.3697, lng:-71.0335},
+  {district:"B2",  name:"Area B-2",               address:"135 Dudley St",        lat:42.3289, lng:-71.0839},
+  {district:"B3",  name:"Area B-3",               address:"1165 Blue Hill Ave",   lat:42.2932, lng:-71.0801},
+  {district:"C6",  name:"Area C-6",               address:"101 W Broadway",       lat:42.3376, lng:-71.0527},
+  {district:"C11", name:"Area C-11",              address:"40 Gibson St",         lat:42.3040, lng:-71.0633},
+  {district:"D4",  name:"Area D-4",               address:"650 Harrison Ave",     lat:42.3421, lng:-71.0724},
+  {district:"D14", name:"Area D-14",              address:"301 Washington St",    lat:42.3521, lng:-71.1546},
+  {district:"E5",  name:"Area E-5",               address:"1708 Centre St",       lat:42.2890, lng:-71.1605},
+  {district:"E13", name:"Area E-13",              address:"3347 Washington St",   lat:42.3131, lng:-71.1116},
+  {district:"E18", name:"Area E-18",              address:"1249 Hyde Park Ave",   lat:42.2561, lng:-71.1275},
+  {district:"HQ",  name:"BPD Headquarters",       address:"One Schroeder Plaza",  lat:42.3307, lng:-71.0833},
+];
+
+async function loadDistrictBoundaries(){
+  // Load GeoJSON from Analyze Boston
+  try {
+    const resp = await fetch(
+      "https://raw.githubusercontent.com/hoodbrief/hoodbrief-boston-hood-brief-boston/main/police_districts.geojson"
+    );
+    if(!resp.ok) throw new Error("GeoJSON unavailable");
+    const geojson = await resp.json();
+    if(geojson.features?.length){
+      L.geoJSON(geojson, {
+        style: feature => {
+          const d = (feature.properties.DISTRICT || feature.properties.ID || "").trim();
+          const info = BPD_DISTRICTS[d] || {};
+          return {
+            color: info.color || "#ffffff",
+            weight: 1.5,
+            opacity: 0.7,
+            fillOpacity: 0.04,
+            fillColor: info.color || "#ffffff",
+          };
+        },
+        onEachFeature: (feature, layer) => {
+          const d = (feature.properties.DISTRICT || feature.properties.ID || "").trim();
+          const info = BPD_DISTRICTS[d] || {name: d};
+          layer.bindTooltip(info.name, {permanent:false, direction:"center",
+            className:"district-tooltip"});
+        }
+      }).addTo(S.map);
+      console.log(`[Districts] ${geojson.features.length} district boundaries loaded`);
+      return;
+    }
+  } catch(e){ console.log("[Districts] GeoJSON fetch failed:", e.message); }
+
+  // Fallback: label markers only
+  Object.entries(BPD_DISTRICTS).forEach(([code, d]) => {
+    L.marker(d.center, {icon: L.divIcon({
+      className:"",
+      html:`<div style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;
+                        color:${d.color};background:rgba(6,8,15,0.7);
+                        border:1px solid ${d.color}40;padding:2px 5px;border-radius:2px;
+                        white-space:nowrap;pointer-events:none;">${code}</div>`,
+      iconSize:[null,null], iconAnchor:[0,0]
+    })}).addTo(S.map);
+  });
+  console.log("[Districts] Fallback labels added");
+}
+
+function loadStationMarkers(){
+  BPD_STATIONS.forEach(st => {
+    const d = BPD_DISTRICTS[st.district] || {};
+    const color = d.color || "#94a3b8";
+    const icon = L.divIcon({
+      className:"",
+      html:`<div style="width:10px;height:10px;background:${color};
+                        border:2px solid rgba(255,255,255,0.8);border-radius:2px;
+                        box-shadow:0 0 6px ${color}80;transform:rotate(45deg)"></div>`,
+      iconSize:[10,10], iconAnchor:[5,5]
+    });
+    const m = L.marker([st.lat, st.lng], {icon, zIndexOffset:-50}).addTo(S.map);
+    m.bindPopup(`
+      <div style="font-family:'Space Grotesk',sans-serif;min-width:180px">
+        <div style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;
+                    color:${color};letter-spacing:1px;margin-bottom:5px">
+          🚔 BPD DISTRICT ${st.district}
+        </div>
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px">${st.name}</div>
+        <div style="color:var(--text2);font-size:11px">📍 ${st.address}</div>
+      </div>`);
+  });
+  console.log(`[Stations] ${BPD_STATIONS.length} station markers added`);
+}
+
 // ── BOOT ──────────────────────────────────────────────────────────────────────
 async function boot(){
   initMap();
+  await loadDistrictBoundaries();
+  loadStationMarkers();
   await loadConsulateMarkers();
   try {
     const rows=await SB.query(`${TABLE}?select=*&order=created_at.desc&limit=200`);
