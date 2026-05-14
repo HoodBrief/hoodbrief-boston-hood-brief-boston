@@ -120,39 +120,44 @@ def process_incidents(records):
     rows = []
     for r in records:
         try:
-            lat = float(get_col(r, "lat", "Lat") or 0)
-            lng = float(get_col(r, "long", "Long", "lng") or 0)
+            lat = float(get_col(r, "Lat", "lat", "LAT") or 0)
+            lng = float(get_col(r, "Long", "long", "LONG", "lng") or 0)
             if not lat or not lng: continue
             if not (42.2 <= lat <= 42.4 and -71.2 <= lng <= -70.9): continue
-            inc_num = get_col(r, "incident_number", "INCIDENT_NUMBER")
+            inc_num = get_col(r, "INCIDENT_NUMBER", "incident_number")
             if not inc_num: continue
             rows.append({
                 "incident_number": str(inc_num),
-                "offense_code":    get_col(r, "offense_code", "OFFENSE_CODE"),
-                "offense_desc":    get_col(r, "offense_description", "OFFENSE_DESCRIPTION"),
-                "occurred_on":     get_col(r, "occurred_on_date", "OCCURRED_ON_DATE"),
+                "offense_code":    get_col(r, "OFFENSE_CODE", "offense_code"),
+                "offense_desc":    get_col(r, "OFFENSE_DESCRIPTION", "offense_description"),
+                "occurred_on":     get_col(r, "OCCURRED_ON_DATE", "occurred_on_date"),
                 "lat": lat, "lng": lng,
-                "shooting":        str(get_col(r, "shooting", "SHOOTING")).upper() == "Y",
-                "district":        get_col(r, "district", "DISTRICT"),
+                "shooting":        str(get_col(r, "SHOOTING", "shooting")).upper() == "Y",
+                "district":        get_col(r, "DISTRICT", "district"),
             })
         except Exception: continue
     return rows
 
 def process_shootings(records):
-    """Process shooting incident records."""
+    """Process shooting incident records.
+    Shootings dataset: incident_num, shooting_date, district, shooting_type_v2, lat, long
+    Shots fired dataset: incident_num, incident_date, district, ballistics_evidence, lat, long
+    """
     rows = []
     for r in records:
         try:
-            lat = float(get_col(r, "lat", "Lat", "latitude") or 0)
-            lng = float(get_col(r, "long", "Long", "lng", "longitude") or 0)
+            lat = float(get_col(r, "lat", "Lat", "LAT", "latitude") or 0)
+            lng = float(get_col(r, "long", "Long", "LONG", "lng", "longitude") or 0)
             if not lat or not lng: continue
             if not (42.2 <= lat <= 42.4 and -71.2 <= lng <= -70.9): continue
+            inc_id = get_col(r, "incident_num", "incident_number", "INCIDENT_NUMBER", "_id")
+            occurred = get_col(r, "shooting_date", "incident_date", "occurred_on_date", "OCCURRED_ON_DATE")
             rows.append({
-                "incident_id":   str(get_col(r, "incident_number", "id", "_id")),
-                "occurred_on":   get_col(r, "shooting_date", "date", "occurred_on_date"),
-                "district":      get_col(r, "district", "neighborhood"),
-                "fatal":         str(get_col(r, "fatal", "homicide")).upper() in ("Y", "YES", "TRUE", "1"),
-                "victim_count":  int(get_col(r, "victim_count", "count") or 1),
+                "incident_id":  str(inc_id),
+                "occurred_on":  occurred,
+                "district":     get_col(r, "district", "DISTRICT"),
+                "fatal":        str(get_col(r, "fatal", "homicide", "shooting_type_v2")).upper() in ("Y", "YES", "TRUE", "FATAL", "1"),
+                "victim_count": int(get_col(r, "victim_count", "count") or 1),
                 "lat": lat, "lng": lng,
                 "priority": "p1",
             })
