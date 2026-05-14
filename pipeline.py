@@ -833,10 +833,20 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
     """Transcribe and parse BPD relay audio chunk."""
     tmp_in = None
     try:
-        # faster-whisper can handle opus/webm directly — no ffmpeg needed
-        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
+        # Detect format and save with correct extension
+        content_type = self.headers.get("Content-Type", "audio/ogg")
+        source = self.headers.get("X-Source", "oracle")
+        if "wav" in content_type or source == "browser":
+            suffix = ".wav"
+        elif "ogg" in content_type:
+            suffix = ".ogg"
+        else:
+            suffix = ".ogg"
+
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
             f.write(audio_bytes)
             tmp_in = f.name
+        print(f"  [BPD Relay] Format: {suffix} source={source}")
 
         # Convert raw Opus frames to WAV using subprocess ffmpeg
         import subprocess
@@ -876,17 +886,15 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
         except Exception: pass
 
         try:
+            # No initial prompt - let Whisper hear what it hears
             segments, _ = model.transcribe(
                 audio_file,
                 language="en",
                 beam_size=5,
-                temperature=0.0,
-                vad_filter=False,  # Disable VAD for BPD — Opus codec may confuse it
-                initial_prompt=(
-                    "Boston Police Department scanner dispatch. "
-                    "Unit designations, BPD district codes, Boston street addresses. "
-                    "Incidents, arrests, pursuits, domestic, shooting, medical."
-                ),
+                temperature=0.2,  # slight temperature to avoid repetition
+                vad_filter=False,
+                condition_on_previous_text=False,
+                initial_prompt=None,
             )
         except Exception as whisper_err:
             print(f"  [BPD Relay] Whisper error: {whisper_err}")
