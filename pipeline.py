@@ -421,8 +421,8 @@ def parse_incident(text, city):
     elif any(re.search(p, tl, re.I) for p in P2_PATTERNS):
         priority = "p2"
     else:
-        print("  Routine call (P3) — skipping")
-        return {"incident": False}
+        priority = "p3"
+
 
     if priority == "p1" and len(tl.split()) < 6:
         print("  P1 too short — skipping")
@@ -907,9 +907,7 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                 condition_on_previous_text=False,
                 no_speech_threshold=0.8,
                 compression_ratio_threshold=2.0,
-                initial_prompt=(
-                    "Boston Police. Units responding. Dispatch. Address. Street."
-                ),
+                initial_prompt=None,
             )
         except Exception as whisper_err:
             print(f"  [BPD Relay] Whisper error: {whisper_err}")
