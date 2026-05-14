@@ -834,9 +834,9 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
     tmp_in = None
     try:
         # Detect format and save with correct extension
-        content_type = "audio/ogg"  # OGG wrapped from Oracle relay
+        content_type = self.headers.get("Content-Type", "audio/wav") if hasattr(self, "headers") else "audio/wav"
         source = "oracle"
-        suffix = ".ogg"
+        suffix = ".wav" if "wav" in content_type else ".ogg"
 
 
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
@@ -846,7 +846,11 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
 
         # Convert raw Opus frames to WAV using subprocess ffmpeg
         import subprocess
-        tmp_wav = tmp_in.replace(".ogg", ".wav")
+        # If already WAV (from relay), skip conversion
+        if suffix == ".wav":
+            audio_file = tmp_in
+        else:
+            tmp_wav = tmp_in + ".wav"
         try:
             # Try with format hint first, then without
             result = subprocess.run(
