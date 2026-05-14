@@ -852,7 +852,7 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
             result = subprocess.run(
                 ["ffmpeg", "-y", "-i", tmp_in,
                  "-ar", "16000", "-ac", "1",
-                 "-af", "highpass=f=300,lowpass=f=3400,volume=0.3",
+                 "-af", "highpass=f=300,lowpass=f=3400,volume=0.6",
                  tmp_wav],
                 capture_output=True, timeout=20
             )
@@ -893,6 +893,7 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                         print(f"  [BPD Audio] {_line.strip()}")
         except Exception: pass
 
+        model = get_whisper_model()
         try:
             # No initial prompt - let Whisper hear what it hears
             segments, _ = model.transcribe(
