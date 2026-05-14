@@ -872,6 +872,9 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                         avg = sum(abs(s) for s in samples) // len(samples)
                         mx = max(abs(s) for s in samples)
                         print(f"  [BPD PCM] avg={avg} max={mx} (speech>500, silence<50)")
+                # Save sample WAV for inspection (overwrite each time)
+                import shutil
+                shutil.copy2(tmp_wav, "/tmp/bpd_latest.wav")
             audio_file = tmp_wav if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0 else None
             if not audio_file:
                 print(f"  [BPD Relay] ffmpeg failed — skipping")
@@ -896,7 +899,7 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
         model = get_whisper_model()
         try:
             # No initial prompt - let Whisper hear what it hears
-            segments, _ = model.transcribe(
+            segments, info = model.transcribe(
                 audio_file,
                 language="en",
                 beam_size=5,
@@ -907,6 +910,7 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                 compression_ratio_threshold=2.0,
                 initial_prompt=None,
             )
+            print(f"  [BPD Whisper] language={info.language} prob={info.language_probability:.2f}")
         except Exception as whisper_err:
             print(f"  [BPD Relay] Whisper error: {whisper_err}")
             return
