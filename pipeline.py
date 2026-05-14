@@ -834,18 +834,9 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
     tmp_in = None
     try:
         # Detect format and save with correct extension
-        content_type = self.headers.get("Content-Type", "audio/opus") if hasattr(self, 'headers') else "audio/opus"
+        content_type = "audio/opus"  # raw Opus from Oracle relay
         source = "oracle"
-        if "ogg" in content_type:
-            suffix = ".ogg"
-        elif "wav" in content_type:
-            suffix = ".wav"
-        else:
-            suffix = ".opus"  # raw Opus frames
-
-
-
-
+        suffix = ".opus"
 
 
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
