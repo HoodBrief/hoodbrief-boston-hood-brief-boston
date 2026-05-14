@@ -129,7 +129,7 @@ def run_channel(channel_key, url, label):
 
         def on_close(ws, c, m):
             print(f"[{label}] Closed — {len(frames)} frames")
-            if len(frames) > 10:
+            if len(frames) > 2:
                 relay(frames, channel_key, label)
             else:
                 print(f"  [{label}] Too few frames — skipping")
