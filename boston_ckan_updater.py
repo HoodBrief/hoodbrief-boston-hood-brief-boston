@@ -99,7 +99,7 @@ def fetch_dataset(resource_id, limit=5000):
                     records = data["result"]["records"]
                     print(f"[CKAN] Fetched {len(records)} records from {resource_id[:8]}...")
                     if records:
-                        print(f"[CKAN] Columns: {list(records[0].keys())[:8]}")
+                        print(f"[CKAN] Columns: {list(records[0].keys())}")
                     return records
             print(f"[CKAN] HTTP {r.status_code} for {resource_id}")
             break
@@ -128,7 +128,6 @@ def process_incidents(records):
             if not inc_num: continue
             rows.append({
                 "incident_number": str(inc_num),
-                "offense_code":    get_col(r, "OFFENSE_CODE", "offense_code"),
                 "offense_desc":    get_col(r, "OFFENSE_DESCRIPTION", "offense_description"),
                 "occurred_on":     get_col(r, "OCCURRED_ON_DATE", "occurred_on_date"),
                 "lat": lat, "lng": lng,
