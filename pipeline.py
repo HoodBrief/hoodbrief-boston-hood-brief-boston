@@ -834,9 +834,14 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
     tmp_in = None
     try:
         # Detect format and save with correct extension
-        content_type = "audio/ogg"  # Oracle relay always sends OGG
+        content_type = self.headers.get("Content-Type", "audio/opus") if hasattr(self, 'headers') else "audio/opus"
         source = "oracle"
-        suffix = ".ogg"
+        if "ogg" in content_type:
+            suffix = ".ogg"
+        elif "wav" in content_type:
+            suffix = ".wav"
+        else:
+            suffix = ".opus"  # raw Opus frames
 
 
 
@@ -850,17 +855,27 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
 
         # Convert raw Opus frames to WAV using subprocess ffmpeg
         import subprocess
-        tmp_wav = tmp_in.replace(".ogg", ".wav")
+        tmp_wav = tmp_in + ".wav"
         try:
+            # Try with format hint first, then without
             result = subprocess.run(
-                ["ffmpeg", "-y", "-i", tmp_in,
+                ["ffmpeg", "-y", "-f", "opus", "-i", tmp_in,
                  "-ar", "16000", "-ac", "1",
-                 "-af", "highpass=f=300,lowpass=f=3400,equalizer=f=1000:width_type=o:width=2:g=3",
+                 "-af", "highpass=f=300,lowpass=f=3400",
                  tmp_wav],
                 capture_output=True, timeout=20
             )
             if result.returncode != 0:
-                print(f"  [BPD ffmpeg] Error: {result.stderr[-200:]}")
+                # Fallback: let ffmpeg auto-detect
+                result = subprocess.run(
+                    ["ffmpeg", "-y", "-i", tmp_in,
+                     "-ar", "16000", "-ac", "1",
+                     "-af", "highpass=f=300,lowpass=f=3400",
+                     tmp_wav],
+                    capture_output=True, timeout=20
+                )
+            if result.returncode != 0:
+                print(f"  [BPD ffmpeg] Error: {result.stderr[-150:]}")
             else:
                 # Check PCM level to see if audio decoded properly
                 wav_size = os.path.getsize(tmp_wav) if os.path.exists(tmp_wav) else 0
