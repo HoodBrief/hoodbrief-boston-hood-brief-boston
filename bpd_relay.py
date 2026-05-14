@@ -7,16 +7,19 @@ import os, time, threading, json, struct, subprocess, tempfile, random, wave, io
 import websocket, requests
 
 CHANNELS = {
+    "bpd_ch1": ("wss://radio.rapidsos.com/bff/ws/67b4a918f07fc8198abc4299", "BPD CH1 Special Event"),
     "bpd_ch2": ("wss://radio.rapidsos.com/bff/ws/67b4a94bf07fc8198abc429a", "BPD CH2 Area A"),
     "bpd_ch3": ("wss://radio.rapidsos.com/bff/ws/67ffbacc750036ae85e7c395", "BPD CH3 Roxbury/Mattapan"),
+    "bpd_ch4": ("wss://radio.rapidsos.com/bff/ws/67ffbaf8cd281dea86c07f70", "BPD CH4 West Roxbury"),
+    "bpd_ch5": ("wss://radio.rapidsos.com/bff/ws/67ffbb16cd281dea86c07f71", "BPD CH5 Back Bay"),
     "bpd_ch6": ("wss://radio.rapidsos.com/bff/ws/67ffbb30f14dc59c46716089", "BPD CH6 South Boston/Dorchester"),
 }
 
 RAILWAY_URL    = os.environ.get("RAILWAY_RELAY_URL", "")
 RELAY_SECRET   = os.environ.get("RELAY_SECRET", "hoodbrief")
 MIN_FRAMES     = 20   # minimum frames per TX to keep (~200ms)
-TARGET_SECS    = 5.0  # accumulate until we have this much speech audio
-FLUSH_TIMEOUT  = 30   # force send after this many seconds regardless
+TARGET_SECS    = 30.0  # accumulate 30 seconds of actual speech (~5 min real time)
+FLUSH_TIMEOUT  = 300  # force send after 5 minutes regardless
 
 # OGG helpers
 _CRC_TABLE = []
@@ -174,6 +177,13 @@ def run_channel(channel_key, url, label):
                     except: break
                     time.sleep(10)
             threading.Thread(target=hb, daemon=True).start()
+            def timer():
+                while True:
+                    time.sleep(FLUSH_TIMEOUT)
+                    if accumulated_pcm:
+                        print(f"  [{label}] Flush timeout — sending {len(accumulated_pcm)/2/16000:.1f}s")
+                        flush()
+            threading.Thread(target=timer, daemon=True).start()
 
         def on_err(ws, e): print(f"[{label}] Error: {e}")
         def on_close(ws, c, m):
