@@ -816,7 +816,7 @@ class BPDAudioHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
-        if len(audio_bytes) < 1000:
+        if len(audio_bytes) < 500:
             return
 
         channel = self.headers.get("X-Channel-Label", "Boston PD — All Districts")
@@ -855,7 +855,7 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
             result = subprocess.run(
                 ["ffmpeg", "-y", "-i", tmp_in,
                  "-ar", "16000", "-ac", "1",
-                 "-af", "highpass=f=200,lowpass=f=3000,volume=2.0,dynaudnorm",
+                 "-af", "highpass=f=300,lowpass=f=3400,equalizer=f=1000:width_type=o:width=2:g=3",
                  tmp_wav],
                 capture_output=True, timeout=20
             )
@@ -903,12 +903,13 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                 language="en",
                 beam_size=5,
                 temperature=0.0,
-                vad_filter=True,
-                vad_parameters={"min_silence_duration_ms": 100, "threshold": 0.3},
+                vad_filter=False,
                 condition_on_previous_text=False,
-                no_speech_threshold=0.6,
-                compression_ratio_threshold=1.8,
-                initial_prompt=None,
+                no_speech_threshold=0.8,
+                compression_ratio_threshold=2.0,
+                initial_prompt=(
+                    "Boston Police. Units responding. Dispatch. Address. Street."
+                ),
             )
         except Exception as whisper_err:
             print(f"  [BPD Relay] Whisper error: {whisper_err}")
