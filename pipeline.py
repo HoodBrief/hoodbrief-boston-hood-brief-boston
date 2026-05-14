@@ -830,81 +830,23 @@ class BPDAudioHandler(BaseHTTPRequestHandler):
         ).start()
 
 def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
-    """Transcribe and parse BPD relay audio chunk."""
+    """Transcribe and parse BPD relay audio chunk (WAV from Oracle VM)."""
     tmp_in = None
     try:
-        # Detect format and save with correct extension
-        content_type = self.headers.get("Content-Type", "audio/wav") if hasattr(self, "headers") else "audio/wav"
-        source = "oracle"
-        suffix = ".wav" if "wav" in content_type else ".ogg"
-
-
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+        # Save WAV from relay
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             f.write(audio_bytes)
             tmp_in = f.name
-        print(f"  [BPD Relay] Format: {suffix} source={source}")
 
-        # Convert raw Opus frames to WAV using subprocess ffmpeg
-        import subprocess
-        # If already WAV (from relay), skip conversion
-        if suffix == ".wav":
-            audio_file = tmp_in
-        else:
-            tmp_wav = tmp_in + ".wav"
-        try:
-            # Try with format hint first, then without
-            result = subprocess.run(
-                ["ffmpeg", "-y", "-i", tmp_in,
-                 "-ar", "16000", "-ac", "1",
-                 "-af", "highpass=f=300,lowpass=f=3400,volume=0.6",
-                 tmp_wav],
-                capture_output=True, timeout=20
-            )
-            if result.returncode != 0:
-                print(f"  [BPD ffmpeg] Error: {result.stderr[-150:]}")
-            else:
-                # Check PCM level to see if audio decoded properly
-                wav_size = os.path.getsize(tmp_wav) if os.path.exists(tmp_wav) else 0
-                print(f"  [BPD ffmpeg] WAV size: {wav_size:,} bytes")
-                if wav_size > 1000:
-                    import struct
-                    with open(tmp_wav, "rb") as wf:
-                        wf.seek(44)  # skip WAV header
-                        raw = wf.read(32000)  # 1 second
-                    if raw:
-                        samples = struct.unpack(f"<{len(raw)//2}h", raw)
-                        avg = sum(abs(s) for s in samples) // len(samples)
-                        mx = max(abs(s) for s in samples)
-                        print(f"  [BPD PCM] avg={avg} max={mx} (speech>500, silence<50)")
-                # Save sample WAV for inspection (overwrite each time)
-                import shutil
-                shutil.copy2(tmp_wav, "/tmp/bpd_latest.wav")
-            audio_file = tmp_wav if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0 else None
-            if not audio_file:
-                print(f"  [BPD Relay] ffmpeg failed — skipping")
-                return
-                return
-        except FileNotFoundError:
-            print("  [BPD Relay] ffmpeg not found")
-            return
-        except Exception as e:
-            print(f"  [BPD Relay] ffmpeg error: {e}")
-            return
+        print(f"  [BPD Relay] Received WAV: {len(audio_bytes):,} bytes")
 
-            _probe = _sp.run(["ffprobe", "-v", "error", "-show_streams",
-                             "-select_streams", "a", audio_file],
-                            capture_output=True, text=True, timeout=10)
-            if _probe.stdout:
-                for _line in _probe.stdout.split("\n"):
-                    if any(k in _line for k in ["codec_name","sample_rate","channels","duration"]):
-                        print(f"  [BPD Audio] {_line.strip()}")
-        except Exception: pass
-
+        # Transcribe with Whisper
         model = get_whisper_model()
+
+        # Check transcript
         try:
-            # No initial prompt - let Whisper hear what it hears
             segments, info = model.transcribe(
-                audio_file,
+                tmp_in,
                 language="en",
                 beam_size=5,
                 temperature=0.0,
@@ -915,74 +857,51 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                 initial_prompt=None,
             )
             print(f"  [BPD Whisper] language={info.language} prob={info.language_probability:.2f}")
-        except Exception as whisper_err:
-            print(f"  [BPD Relay] Whisper error: {whisper_err}")
+        except Exception as e:
+            print(f"  [BPD Relay] Whisper error: {e}")
             return
-        transcript = " ".join(s.text for s in segments).strip()
 
+        transcript = " ".join(s.text.strip() for s in segments).strip()
         if not transcript or len(transcript) < 8:
             print("  [BPD Relay] No speech detected")
             return
 
         print(f"  [BPD Relay] Raw: {transcript[:120]}...")
 
-        # Reject Whisper prompt echo (happens when audio is silent)
+        # Reject prompt echoes and repetitions
         PROMPT_ECHOES = [
             "bpd district codes", "boston street addresses",
             "unit designations", "all rights reserved",
-            "incidents, arrests, pursuits",
-            "thank you for watching",
-            "thanks for watching",
-            "police scanner radio",
-            "broadcastify",
-            "massachusetts state police scanner",
+            "thank you for watching", "thanks for watching",
+            "thank you very much", "see you next time",
+            "see you in the next", "police scanner radio",
+            "let's get started",
         ]
-        # Reject repetitive sign-off phrases
-        words = transcript.lower().split()
-        if len(words) > 4:
-            unique_ratio = len(set(words)) / len(words)
-            if unique_ratio < 0.3:  # More than 70% repeated words
-                print(f"  [BPD Relay] Repetition rejected ({unique_ratio:.0%} unique)")
-                return
-        if any(p in transcript.lower() for p in PROMPT_ECHOES):
+        tl = transcript.lower()
+        if any(p in tl for p in PROMPT_ECHOES):
             print("  [BPD Relay] Prompt echo rejected")
             return
 
-        print(f"  [BPD Relay] Raw: {transcript[:120]}...")
+        # Reject repetitive output
+        words = tl.split()
+        if len(words) > 4 and len(set(words)) / len(words) < 0.3:
+            print(f"  [BPD Relay] Repetition rejected")
+            return
 
-        # Check for hallucinations
-        for marker in ["capital one", "cashback", "broadcastify premium",
-                        "police scanner radio dispatch"]:
-            if marker in transcript.lower():
-                print("  [BPD Relay] Hallucination rejected")
-                return
-
-        # Augment transcript with BPD-specific term translations
-        bpd_xlate = {
-            "signal 19": "shooting",
-            "signal 7": "robbery",
-            "1099": "officer needs help",
-            "10-99": "officer needs help",
-            "code 1": "emergency",
-            "shots fired": "shots fired",
-            "person shot": "shooting",
-            "stabbing": "stabbing",
-            "mvc": "motor vehicle crash",
-            "motor vehicle accident": "accident",
-            "breaking and entering": "breaking and entering",
-            "b and e": "burglary",
-            "d and d": "disorderly",
-            "a and b": "assault and battery",
-            "disturbance": "disturbance",
-            "domestic": "domestic",
-        }
-        t_lower = transcript.lower()
-        for term, replacement in bpd_xlate.items():
-            t_lower = t_lower.replace(term, replacement)
-
-        # Parse
         print(f"  [BPD Relay] Transcript: {transcript[:100]}")
-        parsed = parse_incident(t_lower, "bpd_scan")
+
+        # Translate BPD terms
+        bpd_xlate = {
+            "signal 19": "shooting", "signal 7": "robbery",
+            "1099": "officer needs help", "10-99": "officer needs help",
+            "a and b": "assault and battery", "b and e": "burglary",
+            "d and d": "disorderly", "mvc": "motor vehicle crash",
+        }
+        for term, replacement in bpd_xlate.items():
+            tl = tl.replace(term, replacement)
+
+        # Parse incident
+        parsed = parse_incident(tl, "bpd_scan")
         if not parsed.get("incident"):
             print(f"  [BPD Relay] No incident detected — skipping")
             return
@@ -990,32 +909,32 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
         print(f"  [BPD Relay] Detected: [{parsed['priority'].upper()}] {parsed['title']} @ {parsed['location']}")
 
         # Geocode
-        coords, label = geocode_location(parsed["location"])
+        coords, geo_label = geocode_location(parsed["location"])
         if not coords:
             print(f"  [BPD Relay] Location not verified: {parsed['location']}")
             return
 
-        parsed["lat"], parsed["lng"] = coords
-        if label:
-            parsed["location"] = label
+        parsed["lat"] = coords[0]
+        parsed["lng"] = coords[1]
+        parsed["raw_transcript"] = transcript
+        parsed["translated_transcript"] = tl
 
-        hotspot, zone = check_hotspot(transcript)
-        near_con, consulate = check_diplomatic_proximity(coords[0], coords[1])
+        # Check gang zones and consulates
+        hotspot = check_gang_hotspot(coords[0], coords[1])
+        zone     = hotspot["zone"] if hotspot else None
+        near_con, consulate = check_consulate_proximity(coords[0], coords[1])
 
-        ch_label = getattr(process_relay_audio, '_channel', 'Boston PD — All Districts')
-        save_incident(parsed, "bpd_scan", transcript, transcript,
-                      hotspot, zone, ch_label,
+        save_incident(parsed, "bpd_scan", transcript, tl,
+                      hotspot, zone, channel,
                       near_con, consulate)
-
-        print(f"  [BPD Relay] ✅ Saved: [{parsed['priority'].upper()}] {parsed['title']} @ {parsed['location']}")
 
     except Exception as e:
         print(f"  [BPD Relay] Error: {e}")
+        import traceback; traceback.print_exc()
     finally:
-        for p in [tmp_in, locals().get('tmp_wav')]:
-            if p and os.path.exists(p):
-                try: os.unlink(p)
-                except: pass
+        if tmp_in:
+            try: os.unlink(tmp_in)
+            except: pass
 
 def run_relay_server():
     """Start HTTP server to receive audio from Oracle VM relay."""
