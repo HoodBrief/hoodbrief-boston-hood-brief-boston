@@ -97,20 +97,14 @@ def run_channel(channel_key, url, label):
 
         def on_msg(ws, msg):
             if isinstance(msg, bytes) and msg:
-                # Log first frame header bytes for debugging
-                if len(frames) == 0 and len(msg) > 8:
-                    header = msg[:16].hex()
-                    print(f"  [{label}] First frame header: {header} (len={len(msg)})")
-                    # Check if starts with known Opus magic
-                    if msg[:2] in (b'\xff\xf8', b'\xff\xf9', b'\x7f\xe0'):
-                        print(f"  [{label}] Detected: standard Opus")
-                    else:
-                        print(f"  [{label}] Detected: possibly has proprietary header")
-                        # Try skipping first N bytes as header
-                        for skip in [2, 4, 8, 12, 16]:
-                            if len(msg) > skip and msg[skip:skip+2] in (b'\xff\xf8', b'\xff\xf9'):
-                                print(f"  [{label}] Opus found at offset {skip}")
-                frames.append(msg)
+                # Strip 12-byte proprietary RapidSOS header
+                # Format: [0-1]=type(0x0001) [2-5]=reserved [6-9]=timestamp [10-11]=seq [12+]=Opus
+                if len(msg) > 12 and msg[:2] == b'\x00\x01':
+                    opus_frame = msg[12:]
+                else:
+                    opus_frame = msg  # fallback: use raw
+                if opus_frame:
+                    frames.append(opus_frame)
             elif isinstance(msg, str):
                 try:
                     m = json.loads(msg)
