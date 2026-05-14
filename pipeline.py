@@ -834,14 +834,14 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
     tmp_in = None
     try:
         # Detect format and save with correct extension
-        content_type = self.headers.get("Content-Type", "audio/ogg")
-        source = self.headers.get("X-Source", "oracle")
-        if "wav" in content_type or source == "browser":
-            suffix = ".wav"
-        elif "ogg" in content_type:
-            suffix = ".ogg"
-        else:
-            suffix = ".ogg"
+        content_type = "audio/ogg"  # Oracle relay always sends OGG
+        source = "oracle"
+        suffix = ".ogg"
+
+
+
+
+
 
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
             f.write(audio_bytes)
