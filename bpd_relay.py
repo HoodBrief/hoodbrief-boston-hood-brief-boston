@@ -70,7 +70,9 @@ def frames_to_pcm(frames):
             f.write(ogg_data)
         result = subprocess.run(
             ["ffmpeg", "-y", "-i", tmp_ogg,
-             "-ar", "16000", "-ac", "1", "-f", "s16le", tmp_pcm],
+             "-ar", "16000", "-ac", "1",
+             "-af", "silenceremove=start_periods=1:start_silence=0.1:start_threshold=-35dB:stop_periods=-1:stop_silence=0.1:stop_threshold=-35dB",
+             "-f", "s16le", tmp_pcm],
             capture_output=True, timeout=15
         )
         if result.returncode == 0 and os.path.exists(tmp_pcm):
