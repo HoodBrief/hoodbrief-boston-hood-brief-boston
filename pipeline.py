@@ -1,5 +1,5 @@
 """
-Hood Brief Boston — BPD Scanner Pipeline
+Hood Brief Boston — MSP Scanner Pipeline
 ==========================================
 Three Broadcastify feeds → faster-whisper → rule-based parser → Supabase
 
@@ -977,7 +977,8 @@ def run_ckan_updater():
 
 if __name__ == "__main__":
     print("╔══════════════════════════════════════════╗")
-    print("║  Hood Brief Boston — Crime Scanner       ║")
+    print("║  Hood Brief Boston — MSP Scanner         ║")
+    print("║  BPD · Troops A & H · Special Event      ║")
     print("╚══════════════════════════════════════════╝")
 
     errors = []
