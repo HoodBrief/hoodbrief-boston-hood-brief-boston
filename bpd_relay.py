@@ -74,18 +74,20 @@ def wrap_ogg(frames):
     return b''.join(pages) if len(pages) > 2 else b''
 
 def relay(frames, channel_key, label):
-    ogg = wrap_ogg(frames)
+    # Send raw concatenated Opus frames - let Railway handle decoding
+    raw = b"".join(frames)
     if not RAILWAY_URL:
-        print(f"  [{label}] {len(ogg):,} bytes (no RAILWAY_RELAY_URL)")
+        print(f"  [{label}] {len(raw):,} bytes raw (no RAILWAY_RELAY_URL)")
         return
     try:
-        r = requests.post(RAILWAY_URL, data=ogg, timeout=20, headers={
-            "Content-Type":   "audio/ogg",
-            "X-Relay-Secret": RELAY_SECRET,
-            "X-Channel":      channel_key,
+        r = requests.post(RAILWAY_URL, data=raw, timeout=20, headers={
+            "Content-Type":    "audio/opus",
+            "X-Relay-Secret":  RELAY_SECRET,
+            "X-Channel":       channel_key,
             "X-Channel-Label": label,
+            "X-Frame-Count":   str(len(frames)),
         })
-        print(f"  [{label}] Sent {len(ogg):,} bytes OGG -> HTTP {r.status_code}")
+        print(f"  [{label}] Sent {len(raw):,} bytes raw Opus ({len(frames)} frames) -> HTTP {r.status_code}")
     except Exception as e:
         print(f"  [{label}] Error: {e}")
 
