@@ -834,9 +834,9 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
     tmp_in = None
     try:
         # Detect format and save with correct extension
-        content_type = "audio/opus"  # raw Opus from Oracle relay
+        content_type = "audio/ogg"  # OGG wrapped from Oracle relay
         source = "oracle"
-        suffix = ".opus"
+        suffix = ".ogg"
 
 
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
@@ -846,25 +846,16 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
 
         # Convert raw Opus frames to WAV using subprocess ffmpeg
         import subprocess
-        tmp_wav = tmp_in + ".wav"
+        tmp_wav = tmp_in.replace(".ogg", ".wav")
         try:
             # Try with format hint first, then without
             result = subprocess.run(
-                ["ffmpeg", "-y", "-f", "opus", "-i", tmp_in,
+                ["ffmpeg", "-y", "-i", tmp_in,
                  "-ar", "16000", "-ac", "1",
-                 "-af", "highpass=f=300,lowpass=f=3400",
+                 "-af", "highpass=f=300,lowpass=f=3400,volume=0.3",
                  tmp_wav],
                 capture_output=True, timeout=20
             )
-            if result.returncode != 0:
-                # Fallback: let ffmpeg auto-detect
-                result = subprocess.run(
-                    ["ffmpeg", "-y", "-i", tmp_in,
-                     "-ar", "16000", "-ac", "1",
-                     "-af", "highpass=f=300,lowpass=f=3400",
-                     tmp_wav],
-                    capture_output=True, timeout=20
-                )
             if result.returncode != 0:
                 print(f"  [BPD ffmpeg] Error: {result.stderr[-150:]}")
             else:
@@ -881,18 +872,18 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                         avg = sum(abs(s) for s in samples) // len(samples)
                         mx = max(abs(s) for s in samples)
                         print(f"  [BPD PCM] avg={avg} max={mx} (speech>500, silence<50)")
-            audio_file = tmp_wav if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0 else tmp_in
+            audio_file = tmp_wav if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0 else None
+            if not audio_file:
+                print(f"  [BPD Relay] ffmpeg failed — skipping")
+                return
+                return
         except FileNotFoundError:
-            print("  [BPD Relay] ffmpeg not found — check nixpacks.toml")
+            print("  [BPD Relay] ffmpeg not found")
             return
         except Exception as e:
             print(f"  [BPD Relay] ffmpeg error: {e}")
-            audio_file = tmp_in
+            return
 
-        model = get_whisper_model()
-        # Log audio file info for debugging
-        try:
-            import subprocess as _sp
             _probe = _sp.run(["ffprobe", "-v", "error", "-show_streams",
                              "-select_streams", "a", audio_file],
                             capture_output=True, text=True, timeout=10)
