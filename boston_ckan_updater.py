@@ -11,7 +11,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 RESOURCE_ID = "b973d8cb-eeb2-4e7e-99da-c92938efc9c0"  # 2023-present dataset
-RESOURCE_ID  = "12cb3883-56f5-47de-afa5-3b1cf61b257b"
+RESOURCE_ID  = "b973d8cb-eeb2-4e7e-99da-c92938efc9c0"
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
