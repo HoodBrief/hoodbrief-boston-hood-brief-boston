@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
-# CKAN API base URL
+RESOURCE_ID = "12cb3883-56f5-47de-afa5-3b1cf61b257b"
 RESOURCE_ID  = "12cb3883-56f5-47de-afa5-3b1cf61b257b"
 
 HEADERS = {
@@ -34,20 +34,24 @@ def get_weight(desc, shooting):
     return 1
 
 def fetch_recent_incidents(days=7):
-    """Fetch incidents from the last N days from CKAN datastore_search."""
+    """Fetch incidents from the last N days via CKAN SQL endpoint."""
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     try:
-        # Use datastore_search instead of SQL endpoint
-        url = f"https://data.boston.gov/api/3/action/datastore_search"
-        r = requests.get(url, params={
-            "resource_id": RESOURCE_ID,
-            "limit": 5000,
-            "sort": "occurred_on_date desc",
-        }, timeout=30)
+        url = "https://data.boston.gov/api/3/action/datastore_search_sql"
+        sql = (
+            f'SELECT incident_number, offense_code, offense_description, '
+            f'occurred_on_date, lat, long, shooting, district '
+            f'FROM "{RESOURCE_ID}" '
+            f"WHERE occurred_on_date >= '{since}' "
+            f"AND lat IS NOT NULL AND lat != '' "
+            f"ORDER BY occurred_on_date DESC LIMIT 5000"
+        )
+        r = requests.get(url, params={"sql": sql}, timeout=30)
         r.raise_for_status()
         data = r.json()
         if data.get("success"):
             records = data["result"]["records"]
-            print(f"[CKAN] Got {len(records)} records from datastore_search")
+            print(f"[CKAN] Got {len(records)} records")
             return records
         print(f"[CKAN] API error: {data.get('error', {})}")
         return []
