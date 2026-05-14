@@ -135,10 +135,17 @@ def process_shots_fired(records):
 def upsert_batch(table, rows):
     if not rows: return 0
     inserted=0
+    # Use merge-duplicates for true upsert (ignore if exists)
+    headers={**HEADERS,"Prefer":"resolution=merge-duplicates,return=minimal"}
     for i in range(0,len(rows),200):
         batch=rows[i:i+200]
-        r=requests.post(f"{SUPABASE_URL}/rest/v1/{table}",headers=HEADERS,json=batch,timeout=20)
+        r=requests.post(f"{SUPABASE_URL}/rest/v1/{table}",headers=headers,json=batch,timeout=20)
         if r.status_code in (200,201,204): inserted+=len(batch)
+        elif r.status_code==409:
+            # Row-by-row fallback for conflict
+            for row in batch:
+                rr=requests.post(f"{SUPABASE_URL}/rest/v1/{table}",headers=headers,json=[row],timeout=10)
+                if rr.status_code in (200,201,204): inserted+=1
         else: print(f"[CKAN] Error {table}: {r.status_code} {r.text[:60]}")
     return inserted
 
