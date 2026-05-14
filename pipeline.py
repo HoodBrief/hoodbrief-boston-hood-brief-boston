@@ -286,8 +286,8 @@ _whisper_model = None
 def get_whisper_model():
     global _whisper_model
     if _whisper_model is None:
-        print("[Whisper] Loading faster-whisper medium model...")
-        _whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+        print("[Whisper] Loading faster-whisper large-v3 model...")
+        _whisper_model = WhisperModel("large-v3", device="cpu", compute_type="int8")
         print("[Whisper] Model ready")
     return _whisper_model
 
