@@ -286,8 +286,8 @@ _whisper_model = None
 def get_whisper_model():
     global _whisper_model
     if _whisper_model is None:
-        print("[Whisper] Loading faster-whisper small model...")
-        _whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
+        print("[Whisper] Loading faster-whisper medium model...")
+        _whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
         print("[Whisper] Model ready")
     return _whisper_model
 
@@ -906,8 +906,8 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                 temperature=0.0,
                 vad_filter=False,
                 condition_on_previous_text=False,
-                no_speech_threshold=0.8,
-                compression_ratio_threshold=2.0,
+                no_speech_threshold=0.95,
+                compression_ratio_threshold=2.4,
                 initial_prompt=None,
             )
             print(f"  [BPD Whisper] language={info.language} prob={info.language_probability:.2f}")
