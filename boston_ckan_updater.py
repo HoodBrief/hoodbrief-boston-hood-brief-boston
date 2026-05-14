@@ -44,6 +44,21 @@ DATASETS = {
     },
 }
 
+
+DISTRICT_CENTROIDS = {
+    "A1":  (42.3614, -71.0576),
+    "A7":  (42.3697, -71.0335),
+    "B2":  (42.3289, -71.0839),
+    "B3":  (42.2932, -71.0801),
+    "C6":  (42.3376, -71.0527),
+    "C11": (42.3040, -71.0633),
+    "D4":  (42.3421, -71.0724),
+    "D14": (42.3521, -71.1546),
+    "E5":  (42.2890, -71.1605),
+    "E13": (42.3131, -71.1116),
+    "E18": (42.2561, -71.1275),
+}
+
 WEIGHT_MAP = {
     "shooting": 5, "homicide": 5, "murder": 5,
     "robbery": 3, "assault": 2, "burglary": 2,
@@ -138,30 +153,35 @@ def process_incidents(records):
     return rows
 
 def process_shootings(records):
-    """Process shooting incident records.
-    Shootings dataset: incident_num, shooting_date, district, shooting_type_v2, lat, long
-    Shots fired dataset: incident_num, incident_date, district, ballistics_evidence, lat, long
-    """
+    """Process shooting/shots-fired records using district centroid for location."""
+    import random as _random
     rows = []
     for r in records:
         try:
             lat = float(get_col(r, "lat", "Lat", "LAT", "latitude") or 0)
             lng = float(get_col(r, "long", "Long", "LONG", "lng", "longitude") or 0)
-            if not lat or not lng: continue
+            district = (get_col(r, "district", "DISTRICT") or "").strip().upper()
+            if not lat or not lng:
+                centroid = DISTRICT_CENTROIDS.get(district)
+                if not centroid: continue
+                lat = centroid[0] + _random.uniform(-0.003, 0.003)
+                lng = centroid[1] + _random.uniform(-0.003, 0.003)
             if not (42.2 <= lat <= 42.4 and -71.2 <= lng <= -70.9): continue
             inc_id = get_col(r, "incident_num", "incident_number", "INCIDENT_NUMBER", "_id")
             occurred = get_col(r, "shooting_date", "incident_date", "occurred_on_date", "OCCURRED_ON_DATE")
+            shooting_type = get_col(r, "shooting_type_v2", "shooting_type", "fatal", "homicide")
             rows.append({
                 "incident_id":  str(inc_id),
                 "occurred_on":  occurred,
-                "district":     get_col(r, "district", "DISTRICT"),
-                "fatal":        str(get_col(r, "fatal", "homicide", "shooting_type_v2")).upper() in ("Y", "YES", "TRUE", "FATAL", "1"),
-                "victim_count": int(get_col(r, "victim_count", "count") or 1),
+                "district":     district,
+                "fatal":        str(shooting_type).upper() in ("FATAL", "Y", "YES", "TRUE", "HOMICIDE", "1"),
+                "victim_count": int(get_col(r, "victim_count", "multi_victim", "count") or 1),
                 "lat": lat, "lng": lng,
                 "priority": "p1",
             })
         except Exception: continue
     return rows
+
 
 def upsert_batch(table, rows, id_field):
     """Upsert rows to Supabase table in batches."""
