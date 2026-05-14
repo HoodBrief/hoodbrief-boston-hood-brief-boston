@@ -850,7 +850,7 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
 
         # Convert raw Opus frames to WAV using subprocess ffmpeg
         import subprocess
-        tmp_wav = tmp_in.replace(".opus", ".wav")
+        tmp_wav = tmp_in.replace(".ogg", ".wav")
         try:
             result = subprocess.run(
                 ["ffmpeg", "-y", "-i", tmp_in,
@@ -858,12 +858,21 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                 capture_output=True, timeout=20
             )
             if result.returncode != 0:
-                # Try without specifying input format
-                result = subprocess.run(
-                    ["ffmpeg", "-y", "-i", tmp_in,
-                     "-ar", "16000", "-ac", "1", tmp_wav],
-                    capture_output=True, timeout=20
-                )
+                print(f"  [BPD ffmpeg] Error: {result.stderr[-200:]}")
+            else:
+                # Check PCM level to see if audio decoded properly
+                wav_size = os.path.getsize(tmp_wav) if os.path.exists(tmp_wav) else 0
+                print(f"  [BPD ffmpeg] WAV size: {wav_size:,} bytes")
+                if wav_size > 1000:
+                    import struct
+                    with open(tmp_wav, "rb") as wf:
+                        wf.seek(44)  # skip WAV header
+                        raw = wf.read(32000)  # 1 second
+                    if raw:
+                        samples = struct.unpack(f"<{len(raw)//2}h", raw)
+                        avg = sum(abs(s) for s in samples) // len(samples)
+                        mx = max(abs(s) for s in samples)
+                        print(f"  [BPD PCM] avg={avg} max={mx} (speech>500, silence<50)")
             audio_file = tmp_wav if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0 else tmp_in
         except FileNotFoundError:
             print("  [BPD Relay] ffmpeg not found — check nixpacks.toml")
@@ -918,6 +927,13 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
             "broadcastify",
             "massachusetts state police scanner",
         ]
+        # Reject repetitive sign-off phrases
+        words = transcript.lower().split()
+        if len(words) > 4:
+            unique_ratio = len(set(words)) / len(words)
+            if unique_ratio < 0.3:  # More than 70% repeated words
+                print(f"  [BPD Relay] Repetition rejected ({unique_ratio:.0%} unique)")
+                return
         if any(p in transcript.lower() for p in PROMPT_ECHOES):
             print("  [BPD Relay] Prompt echo rejected")
             return
@@ -931,9 +947,32 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                 print("  [BPD Relay] Hallucination rejected")
                 return
 
+        # Augment transcript with BPD-specific term translations
+        bpd_xlate = {
+            "signal 19": "shooting",
+            "signal 7": "robbery",
+            "1099": "officer needs help",
+            "10-99": "officer needs help",
+            "code 1": "emergency",
+            "shots fired": "shots fired",
+            "person shot": "shooting",
+            "stabbing": "stabbing",
+            "mvc": "motor vehicle crash",
+            "motor vehicle accident": "accident",
+            "breaking and entering": "breaking and entering",
+            "b and e": "burglary",
+            "d and d": "disorderly",
+            "a and b": "assault and battery",
+            "disturbance": "disturbance",
+            "domestic": "domestic",
+        }
+        t_lower = transcript.lower()
+        for term, replacement in bpd_xlate.items():
+            t_lower = t_lower.replace(term, replacement)
+
         # Parse
         print(f"  [BPD Relay] Transcript: {transcript[:100]}")
-        parsed = parse_incident(transcript, "bpd_scan")
+        parsed = parse_incident(t_lower, "bpd_scan")
         if not parsed.get("incident"):
             print(f"  [BPD Relay] No incident detected — skipping")
             return
