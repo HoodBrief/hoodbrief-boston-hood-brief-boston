@@ -7,11 +7,8 @@ import os, time, threading, json, struct, subprocess, tempfile, random, wave, io
 import websocket, requests
 
 CHANNELS = {
-    "bpd_ch1": ("wss://radio.rapidsos.com/bff/ws/67b4a918f07fc8198abc4299", "BPD CH1 Special Event"),
     "bpd_ch2": ("wss://radio.rapidsos.com/bff/ws/67b4a94bf07fc8198abc429a", "BPD CH2 Area A"),
     "bpd_ch3": ("wss://radio.rapidsos.com/bff/ws/67ffbacc750036ae85e7c395", "BPD CH3 Roxbury/Mattapan"),
-    "bpd_ch4": ("wss://radio.rapidsos.com/bff/ws/67ffbaf8cd281dea86c07f70", "BPD CH4 West Roxbury"),
-    "bpd_ch5": ("wss://radio.rapidsos.com/bff/ws/67ffbb16cd281dea86c07f71", "BPD CH5 Back Bay"),
     "bpd_ch6": ("wss://radio.rapidsos.com/bff/ws/67ffbb30f14dc59c46716089", "BPD CH6 South Boston/Dorchester"),
 }
 
@@ -167,9 +164,7 @@ def run_channel(channel_key, url, label):
                                 if speech_secs >= TARGET_SECS:
                                     flush()
                 except: pass
-            # Force flush on timeout
-            if time.time() - last_flush >= FLUSH_TIMEOUT and accumulated_pcm:
-                flush()
+
 
         def on_open(ws):
             print(f"[{label}] Connected")
