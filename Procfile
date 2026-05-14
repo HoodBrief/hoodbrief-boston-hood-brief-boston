@@ -1,1 +1,1 @@
-worker: bash setup.sh && python pipeline.py
+worker: python pipeline.py
