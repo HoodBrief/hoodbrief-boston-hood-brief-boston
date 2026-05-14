@@ -46,8 +46,16 @@ def fetch_recent_incidents(days=7):
             f"AND lat IS NOT NULL AND lat != '' "
             f"ORDER BY occurred_on_date DESC LIMIT 5000"
         )
-        r = requests.get(url, params={"sql": sql}, timeout=30)
-        r.raise_for_status()
+        # Retry up to 3 times with backoff (409 = rate limit)
+        import time as _time
+        for attempt in range(3):
+            r = requests.get(url, params={"sql": sql}, timeout=30)
+            if r.status_code == 409:
+                print(f"[CKAN] Rate limited (409) — waiting {(attempt+1)*10}s")
+                _time.sleep((attempt+1) * 10)
+                continue
+            r.raise_for_status()
+            break
         data = r.json()
         if data.get("success"):
             records = data["result"]["records"]
