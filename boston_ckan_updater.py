@@ -39,12 +39,9 @@ def fetch_recent_incidents(days=7):
     try:
         url = "https://data.boston.gov/api/3/action/datastore_search_sql"
         sql = (
-            f'SELECT incident_number, offense_code, offense_description, '
-            f'occurred_on_date, lat, long, shooting, district '
+            f'SELECT * '
             f'FROM "{RESOURCE_ID}" '
-            f"WHERE occurred_on_date >= '{since}' "
-            f"AND lat IS NOT NULL AND lat != '' "
-            f"ORDER BY occurred_on_date DESC LIMIT 5000"
+            f"ORDER BY occurred_on_date DESC LIMIT 1000"
         )
         # Retry up to 3 times with backoff (409 = rate limit)
         import time as _time
@@ -60,6 +57,8 @@ def fetch_recent_incidents(days=7):
         if data.get("success"):
             records = data["result"]["records"]
             print(f"[CKAN] Got {len(records)} records")
+            if records:
+                print(f"[CKAN] Sample columns: {list(records[0].keys())[:8]}")
             return records
         print(f"[CKAN] API error: {data.get('error', {})}")
         return []
@@ -72,20 +71,25 @@ def upsert_incidents(records):
     rows = []
     for r in records:
         try:
-            lat = float(r.get("lat") or 0)
-            lng = float(r.get("long") or 0)
+            # Handle both uppercase and lowercase column names
+            def get(key):
+                return r.get(key) or r.get(key.upper()) or r.get(key.lower()) or ""
+            lat = float(get("lat") or get("Lat") or 0)
+            lng = float(get("long") or get("Long") or 0)
             if not lat or not lng: continue
-            # Basic Boston bounds check
             if not (42.2 <= lat <= 42.4 and -71.2 <= lng <= -70.9): continue
+            inc_num = get("incident_number") or get("INCIDENT_NUMBER") or get("incident_num") or ""
+            if not inc_num:
+                continue
             rows.append({
-                "incident_number": r.get("incident_number", ""),
-                "offense_code":    r.get("offense_code", ""),
-                "offense_desc":    r.get("offense_description", ""),
-                "occurred_on":     r.get("occurred_on_date", ""),
+                "incident_number": inc_num,
+                "offense_code":    get("offense_code") or get("OFFENSE_CODE"),
+                "offense_desc":    get("offense_description") or get("OFFENSE_DESCRIPTION"),
+                "occurred_on":     get("occurred_on_date") or get("OCCURRED_ON_DATE"),
                 "lat":             lat,
                 "lng":             lng,
-                "shooting":        str(r.get("shooting", "")).upper() == "Y",
-                "district":        r.get("district", ""),
+                "shooting":        str(get("shooting") or get("SHOOTING")).upper() == "Y",
+                "district":        get("district") or get("DISTRICT"),
             })
         except Exception:
             continue
