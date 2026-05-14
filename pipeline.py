@@ -854,7 +854,9 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
         try:
             result = subprocess.run(
                 ["ffmpeg", "-y", "-i", tmp_in,
-                 "-ar", "16000", "-ac", "1", tmp_wav],
+                 "-ar", "16000", "-ac", "1",
+                 "-af", "highpass=f=200,lowpass=f=3000,volume=2.0,dynaudnorm",
+                 tmp_wav],
                 capture_output=True, timeout=20
             )
             if result.returncode != 0:
@@ -900,9 +902,12 @@ def process_relay_audio(audio_bytes, channel="Boston PD — All Districts"):
                 audio_file,
                 language="en",
                 beam_size=5,
-                temperature=0.2,  # slight temperature to avoid repetition
-                vad_filter=False,
+                temperature=0.0,
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 100, "threshold": 0.3},
                 condition_on_previous_text=False,
+                no_speech_threshold=0.6,
+                compression_ratio_threshold=1.8,
                 initial_prompt=None,
             )
         except Exception as whisper_err:
