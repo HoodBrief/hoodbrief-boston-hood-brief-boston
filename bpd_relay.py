@@ -59,11 +59,19 @@ def wrap_ogg(frames):
     com_hdr = b'OpusTags' + struct.pack('<I', len(vendor)) + vendor + struct.pack('<I', 0)
     pages.append(make_ogg_page(com_hdr, serial, seq, 0, 0)); seq += 1
     granule = 0
-    for f in frames:
-        if not f: continue
-        granule += 960
+    # Auto-detect samples per frame from total duration
+    # 30 seconds at 48kHz = 1,440,000 total samples
+    # Divide by number of frames to get samples per frame
+    audio_frames = [f for f in frames if f]
+    if not audio_frames:
+        return b""
+    # Use 9600 samples per frame (200ms) as RapidSOS default
+    # This is 10x longer than standard Opus 20ms frames
+    samples_per_frame = 9600
+    for f in audio_frames:
+        granule += samples_per_frame
         pages.append(make_ogg_page(f, serial, seq, granule, 0)); seq += 1
-    return b''.join(pages)
+    return b''.join(pages) if len(pages) > 2 else b''
 
 def relay(frames, channel_key, label):
     ogg = wrap_ogg(frames)
