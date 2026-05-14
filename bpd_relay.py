@@ -74,11 +74,39 @@ def wrap_ogg(frames):
     return b''.join(pages) if len(pages) > 2 else b''
 
 def relay(frames, channel_key, label):
-    ogg = wrap_ogg(frames)
-    if not ogg:
+    import tempfile, subprocess, os
+    if not frames:
         return
-    if not RAILWAY_URL:
-        print(f"  [{label}] {len(ogg):,} bytes OGG (no RAILWAY_RELAY_URL)")
+    # Write raw Opus frames to temp file
+    with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
+        # Write each frame with a simple length prefix so ffmpeg can parse
+        for frame in frames:
+            f.write(frame)
+        raw_path = f.name
+    ogg_path = raw_path + ".ogg"
+    try:
+        # Use ffmpeg to properly wrap in OGG container
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-f", "opus", "-i", raw_path,
+            "-c:a", "copy",
+            ogg_path
+        ], capture_output=True, timeout=15)
+        if result.returncode == 0 and os.path.exists(ogg_path):
+            with open(ogg_path, "rb") as f:
+                ogg = f.read()
+        else:
+            # Fallback to Python OGG wrapping
+            ogg = wrap_ogg(frames)
+    except Exception as e:
+        ogg = wrap_ogg(frames)
+    finally:
+        try: os.unlink(raw_path)
+        except: pass
+        try: os.unlink(ogg_path)
+        except: pass
+
+    if not ogg or not RAILWAY_URL:
         return
     try:
         r = requests.post(RAILWAY_URL, data=ogg, timeout=20, headers={
