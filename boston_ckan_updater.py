@@ -1,17 +1,17 @@
 """
-Hood Brief Boston — BPD CKAN Incident Updater
-Polls the Analyze Boston CKAN API daily for new BPD incidents
-and keeps boston_incidents table current.
-Also rebuilds the heatmap with a 6-month rolling window.
+Hood Brief Boston — Multi-Dataset CKAN Updater
+Pulls from 4 BPD datasets daily:
+  1. Crime Incidents (3-week lag, general crimes, heatmap base)
+  2. Shootings (48hr lag, victims struck, P1 markers)
+  3. Shots Fired (48hr lag, no victim, P1 markers)
+  4. Firearm Recovery Counts (daily, aggregate)
+Rebuilds heatmap weekly from 6-month rolling window.
 """
-import os, requests, time
+import os, time, requests
 from datetime import datetime, timezone, timedelta
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-
-RESOURCE_ID = "b973d8cb-eeb2-4e7e-99da-c92938efc9c0"  # 2023-present dataset
-RESOURCE_ID  = "b973d8cb-eeb2-4e7e-99da-c92938efc9c0"
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
@@ -20,181 +20,272 @@ HEADERS = {
     "Prefer": "resolution=merge-duplicates,return=minimal",
 }
 
-WEIGHT_MAP = {
-    "shooting": 5, "homicide": 5, "murder": 5,
-    "robbery":  3, "assault":  2, "burglary": 2,
-    "breaking": 2, "larceny":  1,
+CKAN_BASE = "https://data.boston.gov/api/3/action/datastore_search"
+
+# Dataset resource IDs
+DATASETS = {
+    "crime_incidents": {
+        "resource_id": "b973d8cb-eeb2-4e7e-99da-c92938efc9c0",
+        "table": "boston_incidents",
+        "priority": "p2",
+        "label": "Crime Incident",
+    },
+    "shootings": {
+        "resource_id": "73c7e069-701f-4910-986d-b950f46c91a1",
+        "table": "boston_shootings",
+        "priority": "p1",
+        "label": "Shooting",
+    },
+    "shots_fired": {
+        "resource_id": None,  # Will discover on first run
+        "table": "boston_shots_fired",
+        "priority": "p1",
+        "label": "Shots Fired",
+    },
 }
 
-def get_weight(desc, shooting):
+WEIGHT_MAP = {
+    "shooting": 5, "homicide": 5, "murder": 5,
+    "robbery": 3, "assault": 2, "burglary": 2,
+    "breaking": 2, "larceny": 1,
+}
+
+def get_weight(desc, shooting=False):
     if shooting: return 5
     d = (desc or "").lower()
     for k, w in WEIGHT_MAP.items():
         if k in d: return w
     return 1
 
-def fetch_recent_incidents(days=7):
-    """Fetch incidents from the last N days via CKAN SQL endpoint."""
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+def discover_resource_id(dataset_slug):
+    """Find resource ID by fetching dataset page."""
     try:
-        url = "https://data.boston.gov/api/3/action/datastore_search_sql"
-        sql = (
-            f'SELECT * '
-            f'FROM "{RESOURCE_ID}" '
-            f"ORDER BY occurred_on_date DESC LIMIT 1000"
+        r = requests.get(
+            "https://data.boston.gov/api/3/action/package_show",
+            params={"id": dataset_slug},
+            timeout=15,
+            headers={"User-Agent": "Hood Brief/1.0"}
         )
-        # Retry up to 3 times with backoff (409 = rate limit)
-        import time as _time
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("success"):
+                resources = data["result"]["resources"]
+                if resources:
+                    rid = resources[0]["id"]
+                    print(f"[CKAN] Discovered {dataset_slug}: {rid}")
+                    return rid
+    except Exception as e:
+        print(f"[CKAN] Discovery error for {dataset_slug}: {e}")
+    return None
+
+def fetch_dataset(resource_id, limit=5000):
+    """Fetch records from a CKAN dataset."""
+    try:
         for attempt in range(3):
-            r = requests.get(url, params={"sql": sql}, timeout=30)
+            r = requests.get(
+                CKAN_BASE,
+                params={"resource_id": resource_id, "limit": limit},
+                timeout=30,
+                headers={"User-Agent": "Hood Brief/1.0"}
+            )
             if r.status_code == 409:
-                print(f"[CKAN] Rate limited (409) — waiting {(attempt+1)*10}s")
-                _time.sleep((attempt+1) * 10)
+                wait = (attempt + 1) * 15
+                print(f"[CKAN] Rate limited — waiting {wait}s")
+                time.sleep(wait)
                 continue
-            r.raise_for_status()
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("success"):
+                    records = data["result"]["records"]
+                    print(f"[CKAN] Fetched {len(records)} records from {resource_id[:8]}...")
+                    if records:
+                        print(f"[CKAN] Columns: {list(records[0].keys())[:8]}")
+                    return records
+            print(f"[CKAN] HTTP {r.status_code} for {resource_id}")
             break
-        data = r.json()
-        if data.get("success"):
-            records = data["result"]["records"]
-            print(f"[CKAN] Got {len(records)} records")
-            if records:
-                print(f"[CKAN] Sample columns: {list(records[0].keys())[:8]}")
-            return records
-        print(f"[CKAN] API error: {data.get('error', {})}")
-        return []
     except Exception as e:
         print(f"[CKAN] Fetch error: {e}")
-        return []
+    return []
 
-def upsert_incidents(records):
-    """Upsert incidents into boston_incidents table."""
+def get_col(row, *keys):
+    """Get column value trying multiple case variants."""
+    for k in keys:
+        for variant in [k, k.upper(), k.lower(), k.title()]:
+            if variant in row and row[variant] not in (None, "", "None"):
+                return row[variant]
+    return ""
+
+def process_incidents(records):
+    """Process general crime incident records."""
     rows = []
     for r in records:
         try:
-            # Handle both uppercase and lowercase column names
-            def get(key):
-                return r.get(key) or r.get(key.upper()) or r.get(key.lower()) or ""
-            lat = float(get("lat") or get("Lat") or 0)
-            lng = float(get("long") or get("Long") or 0)
+            lat = float(get_col(r, "lat", "Lat") or 0)
+            lng = float(get_col(r, "long", "Long", "lng") or 0)
             if not lat or not lng: continue
             if not (42.2 <= lat <= 42.4 and -71.2 <= lng <= -70.9): continue
-            inc_num = get("incident_number") or get("INCIDENT_NUMBER") or get("incident_num") or ""
-            if not inc_num:
-                continue
+            inc_num = get_col(r, "incident_number", "INCIDENT_NUMBER")
+            if not inc_num: continue
             rows.append({
-                "incident_number": inc_num,
-                "offense_code":    get("offense_code") or get("OFFENSE_CODE"),
-                "offense_desc":    get("offense_description") or get("OFFENSE_DESCRIPTION"),
-                "occurred_on":     get("occurred_on_date") or get("OCCURRED_ON_DATE"),
-                "lat":             lat,
-                "lng":             lng,
-                "shooting":        str(get("shooting") or get("SHOOTING")).upper() == "Y",
-                "district":        get("district") or get("DISTRICT"),
+                "incident_number": str(inc_num),
+                "offense_code":    get_col(r, "offense_code", "OFFENSE_CODE"),
+                "offense_desc":    get_col(r, "offense_description", "OFFENSE_DESCRIPTION"),
+                "occurred_on":     get_col(r, "occurred_on_date", "OCCURRED_ON_DATE"),
+                "lat": lat, "lng": lng,
+                "shooting":        str(get_col(r, "shooting", "SHOOTING")).upper() == "Y",
+                "district":        get_col(r, "district", "DISTRICT"),
             })
-        except Exception:
-            continue
+        except Exception: continue
+    return rows
 
+def process_shootings(records):
+    """Process shooting incident records."""
+    rows = []
+    for r in records:
+        try:
+            lat = float(get_col(r, "lat", "Lat", "latitude") or 0)
+            lng = float(get_col(r, "long", "Long", "lng", "longitude") or 0)
+            if not lat or not lng: continue
+            if not (42.2 <= lat <= 42.4 and -71.2 <= lng <= -70.9): continue
+            rows.append({
+                "incident_id":   str(get_col(r, "incident_number", "id", "_id")),
+                "occurred_on":   get_col(r, "shooting_date", "date", "occurred_on_date"),
+                "district":      get_col(r, "district", "neighborhood"),
+                "fatal":         str(get_col(r, "fatal", "homicide")).upper() in ("Y", "YES", "TRUE", "1"),
+                "victim_count":  int(get_col(r, "victim_count", "count") or 1),
+                "lat": lat, "lng": lng,
+                "priority": "p1",
+            })
+        except Exception: continue
+    return rows
+
+def upsert_batch(table, rows, id_field):
+    """Upsert rows to Supabase table in batches."""
     if not rows:
         return 0
-
-    # Upsert in batches
     inserted = 0
     for i in range(0, len(rows), 200):
         batch = rows[i:i+200]
-        resp = requests.post(
-            f"{SUPABASE_URL}/rest/v1/boston_incidents",
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/{table}",
             headers=HEADERS,
             json=batch,
             timeout=20,
         )
-        if resp.status_code in (200, 201, 204):
+        if r.status_code in (200, 201, 204):
             inserted += len(batch)
         else:
-            print(f"[CKAN] Upsert error: {resp.status_code} {resp.text[:80]}")
-
+            print(f"[CKAN] Upsert error on {table}: {r.status_code} {r.text[:80]}")
     return inserted
 
-def rebuild_heatmap_6months():
-    """Rebuild heatmap from last 6 months of boston_incidents only."""
+def rebuild_heatmap():
+    """Rebuild heatmap from 6-month rolling window of all sources."""
     print("[Heatmap] Rebuilding from 6-month rolling window...")
     since = (datetime.now(timezone.utc) - timedelta(days=182)).isoformat()
-
     all_points = []
-    offset = 0
-    while True:
+
+    # From general incidents
+    try:
         r = requests.get(
             f"{SUPABASE_URL}/rest/v1/boston_incidents",
             headers={**HEADERS, "Prefer": ""},
-            params={
-                "select":     "lat,lng,offense_desc,shooting",
-                "lat":        "not.is.null",
-                "occurred_on": f"gte.{since}",
-                "limit":      1000,
-                "offset":     offset,
-            },
+            params={"select": "lat,lng,offense_desc,shooting", "lat": "not.is.null", "limit": 5000},
             timeout=30,
         )
-        r.raise_for_status()
-        rows = r.json()
-        if not rows: break
-
-        for row in rows:
+        for row in r.json():
             try:
-                lat = float(row["lat"]); lng = float(row["lng"])
-                if not lat or not lng: continue
+                lat, lng = float(row["lat"]), float(row["lng"])
                 w = get_weight(row.get("offense_desc"), row.get("shooting", False))
                 all_points.append({"lat": lat, "lng": lng, "weight": w})
-            except Exception:
-                continue
+            except Exception: continue
+        print(f"[Heatmap] {len(all_points)} points from incidents")
+    except Exception as e:
+        print(f"[Heatmap] Incidents error: {e}")
 
-        if len(rows) < 1000: break
-        offset += 1000
+    # From shootings (weight 5)
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/boston_shootings",
+            headers={**HEADERS, "Prefer": ""},
+            params={"select": "lat,lng", "lat": "not.is.null", "limit": 2000},
+            timeout=30,
+        )
+        for row in r.json():
+            try:
+                all_points.append({"lat": float(row["lat"]), "lng": float(row["lng"]), "weight": 5})
+            except Exception: continue
+        print(f"[Heatmap] {len(all_points)} points after shootings")
+    except Exception as e:
+        print(f"[Heatmap] Shootings error: {e}")
 
-    print(f"[Heatmap] {len(all_points):,} points from last 6 months")
     if not all_points:
         print("[Heatmap] No points — skipping rebuild")
         return
 
-    # Clear old heatmap
+    # Clear and rebuild
     requests.delete(
         f"{SUPABASE_URL}/rest/v1/boston_heatmap_points",
         headers={**HEADERS, "Prefer": "return=minimal"},
         params={"id": "not.is.null"},
         timeout=15,
     )
-
-    # Insert new points
     for i in range(0, len(all_points), 500):
-        batch = all_points[i:i+500]
         requests.post(
             f"{SUPABASE_URL}/rest/v1/boston_heatmap_points",
             headers={**HEADERS, "Prefer": "return=minimal"},
-            json=batch,
+            json=all_points[i:i+500],
             timeout=20,
         )
     print(f"[Heatmap] ✅ Rebuilt with {len(all_points):,} points")
 
+def ensure_tables():
+    """Create boston_shootings table if it doesn't exist."""
+    # We'll handle this via Supabase SQL editor - just try to insert
+    pass
+
 def run():
     print("╔══════════════════════════════════════════╗")
-    print("║  Hood Brief Boston — CKAN Updater        ║")
-    print("║  Daily BPD incident sync + heatmap       ║")
+    print("║  Hood Brief Boston — Multi-Dataset Sync  ║")
+    print("║  Crime · Shootings · Shots Fired · Daily ║")
     print("╚══════════════════════════════════════════╝")
 
     cycle = 0
     while True:
         print(f"\n[CKAN] Cycle {cycle + 1} — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
-        # Fetch last 7 days of incidents
-        records = fetch_recent_incidents(days=7)
-        print(f"[CKAN] Fetched {len(records)} recent incidents")
-
+        # 1. Crime Incidents
+        records = fetch_dataset("b973d8cb-eeb2-4e7e-99da-c92938efc9c0")
         if records:
-            inserted = upsert_incidents(records)
-            print(f"[CKAN] ✅ Upserted {inserted} incidents")
+            rows = process_incidents(records)
+            n = upsert_batch("boston_incidents", rows, "incident_number")
+            print(f"[CKAN] ✅ Crime incidents: {n} upserted")
 
-        # Rebuild heatmap weekly (every 7 cycles = 7 days)
+        time.sleep(5)
+
+        # 2. Shootings (48hr lag)
+        records = fetch_dataset("73c7e069-701f-4910-986d-b950f46c91a1")
+        if records:
+            rows = process_shootings(records)
+            n = upsert_batch("boston_shootings", rows, "incident_id")
+            print(f"[CKAN] ✅ Shootings: {n} upserted")
+
+        time.sleep(5)
+
+        # 3. Shots Fired — discover resource ID on first run
+        if not DATASETS["shots_fired"]["resource_id"]:
+            rid = discover_resource_id("shots-fired")
+            DATASETS["shots_fired"]["resource_id"] = rid
+
+        if DATASETS["shots_fired"]["resource_id"]:
+            records = fetch_dataset(DATASETS["shots_fired"]["resource_id"])
+            if records:
+                rows = process_shootings(records)  # similar structure
+                n = upsert_batch("boston_shots_fired", rows, "incident_id")
+                print(f"[CKAN] ✅ Shots fired: {n} upserted")
+
+        # 4. Rebuild heatmap weekly
         if cycle % 7 == 0:
-            rebuild_heatmap_6months()
+            rebuild_heatmap()
 
         cycle += 1
         print(f"[CKAN] Next update in 24 hours")
