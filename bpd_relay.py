@@ -1,13 +1,12 @@
 """
 Hood Brief Boston — BPD Oracle VM Relay
-Connects to all 6 BPD channels individually via RapidSOS WebSocket.
-No cookie required — Oracle VM IP is on RapidSOS allowlist.
-Wraps Opus frames in valid OGG container, POSTs to Railway.
+Uses ffmpeg to decode Opus frames directly to WAV on the VM,
+bypassing the broken OGG wrapping approach entirely.
+Sends clean WAV audio to Railway for Whisper transcription.
 """
-import os, time, threading, json, struct, random
+import os, time, threading, json, struct, subprocess, tempfile
 import websocket, requests
 
-# All 6 BPD channels + scan
 CHANNELS = {
     "bpd_ch1": ("wss://radio.rapidsos.com/bff/ws/67b4a918f07fc8198abc4299", "BPD CH1 Special Event"),
     "bpd_ch2": ("wss://radio.rapidsos.com/bff/ws/67b4a94bf07fc8198abc429a", "BPD CH2 Area A"),
@@ -21,129 +20,104 @@ RAILWAY_URL  = os.environ.get("RAILWAY_RELAY_URL", "")
 RELAY_SECRET = os.environ.get("RELAY_SECRET", "hoodbrief")
 CHUNK_SECS   = 30
 
-# OGG CRC table (polynomial 0x04c11db7)
-_CRC_TABLE = []
-for _i in range(256):
-    _r = _i << 24
-    for _ in range(8):
-        _r = ((_r << 1) ^ 0x04c11db7) & 0xFFFFFFFF if _r & 0x80000000 else (_r << 1) & 0xFFFFFFFF
-    _CRC_TABLE.append(_r)
-
-def ogg_crc(data):
-    crc = 0
-    for b in data:
-        crc = ((crc << 8) ^ _CRC_TABLE[((crc >> 24) & 0xFF) ^ b]) & 0xFFFFFFFF
-    return crc
-
-def make_ogg_page(payload, serial, seq, granule=0, flags=0):
-    segs = []
-    data = payload
-    while data:
-        s = data[:255]; segs.append(len(s)); data = data[255:]
-    lacing = bytes([len(segs)] + segs)
-    page = (b'OggS\x00' + bytes([flags]) +
-            struct.pack('<q', granule) +
-            struct.pack('<I', serial) +
-            struct.pack('<I', seq) +
-            b'\x00\x00\x00\x00' + lacing + payload)
-    crc = ogg_crc(page)
-    return page[:22] + struct.pack('<I', crc) + page[26:]
-
-def wrap_ogg(frames):
-    serial = random.randint(1, 0xFFFFFF)
-    pages = []; seq = 0
-    # 48kHz OpusHead
-    id_hdr = b'OpusHead\x01\x01\x38\x01\x80\xbb\x00\x00\x00\x00\x00'
-    pages.append(make_ogg_page(id_hdr, serial, seq, 0, 0x02)); seq += 1
-    vendor = b'HoodBrief'
-    com_hdr = b'OpusTags' + struct.pack('<I', len(vendor)) + vendor + struct.pack('<I', 0)
-    pages.append(make_ogg_page(com_hdr, serial, seq, 0, 0)); seq += 1
-    granule = 0
-    # Auto-detect samples per frame from total duration
-    # 30 seconds at 48kHz = 1,440,000 total samples
-    # Divide by number of frames to get samples per frame
-    audio_frames = [f for f in frames if f]
-    if not audio_frames:
-        return b""
-    # Use 9600 samples per frame (200ms) as RapidSOS default
-    # This is 10x longer than standard Opus 20ms frames
-    samples_per_frame = 9600
-    for f in audio_frames:
-        granule += samples_per_frame
-        pages.append(make_ogg_page(f, serial, seq, granule, 0)); seq += 1
-    return b''.join(pages) if len(pages) > 2 else b''
-
-def relay(frames, channel_key, label):
-    import tempfile, subprocess, os
+def frames_to_wav(frames, label):
+    """Convert raw Opus frames to WAV using ffmpeg on the VM.
+    Writes frames as raw data, uses ffmpeg with libopus to decode."""
     if not frames:
-        return
-    # Write raw Opus frames to temp file
-    with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
-        # Write each frame with a simple length prefix so ffmpeg can parse
-        for frame in frames:
-            f.write(frame)
-        raw_path = f.name
-    ogg_path = raw_path + ".ogg"
+        return None
+
+    # Write raw concatenated frames to temp file
+    tmp_opus = tempfile.mktemp(suffix=".opus")
+    tmp_wav  = tempfile.mktemp(suffix=".wav")
+
     try:
-        # Use ffmpeg to properly wrap in OGG container
+        with open(tmp_opus, "wb") as f:
+            for frame in frames:
+                f.write(frame)
+
+        # Try decoding as raw Opus with ffmpeg
+        # -f opus forces Opus container format detection
         result = subprocess.run([
             "ffmpeg", "-y",
-            "-f", "opus", "-i", raw_path,
-            "-c:a", "copy",
-            ogg_path
+            "-f", "opus",
+            "-i", tmp_opus,
+            "-ar", "16000",
+            "-ac", "1",
+            "-f", "wav",
+            tmp_wav
         ], capture_output=True, timeout=15)
-        if result.returncode == 0 and os.path.exists(ogg_path):
-            with open(ogg_path, "rb") as f:
-                ogg = f.read()
-        else:
-            # Fallback to Python OGG wrapping
-            ogg = wrap_ogg(frames)
-    except Exception as e:
-        ogg = wrap_ogg(frames)
-    finally:
-        try: os.unlink(raw_path)
-        except: pass
-        try: os.unlink(ogg_path)
-        except: pass
 
-    if not ogg or not RAILWAY_URL:
+        if result.returncode != 0 or not os.path.exists(tmp_wav):
+            # Try with OGG container
+            tmp_ogg = tempfile.mktemp(suffix=".ogg")
+            # Write simple OGG using ffmpeg's concat
+            result2 = subprocess.run([
+                "ffmpeg", "-y",
+                "-f", "data",
+                "-i", tmp_opus,
+                "-ar", "16000",
+                "-ac", "1",
+                tmp_wav
+            ], capture_output=True, timeout=15)
+
+            if result2.returncode != 0:
+                print(f"  [{label}] ffmpeg decode failed")
+                print(f"  [{label}] stderr: {result.stderr[-100:]}")
+                return None
+
+        if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 1000:
+            with open(tmp_wav, "rb") as f:
+                wav_data = f.read()
+            print(f"  [{label}] WAV: {len(wav_data):,} bytes")
+            return wav_data
+        return None
+
+    except Exception as e:
+        print(f"  [{label}] frames_to_wav error: {e}")
+        return None
+    finally:
+        for p in [tmp_opus, tmp_wav]:
+            try: os.unlink(p)
+            except: pass
+
+def relay(frames, channel_key, label):
+    wav = frames_to_wav(frames, label)
+    if not wav or not RAILWAY_URL:
         return
     try:
-        r = requests.post(RAILWAY_URL, data=ogg, timeout=20, headers={
-            "Content-Type":    "audio/ogg",
+        r = requests.post(RAILWAY_URL, data=wav, timeout=20, headers={
+            "Content-Type":    "audio/wav",
             "X-Relay-Secret":  RELAY_SECRET,
             "X-Channel":       channel_key,
             "X-Channel-Label": label,
         })
-        print(f"  [{label}] Sent {len(ogg):,} bytes OGG -> HTTP {r.status_code}")
+        print(f"  [{label}] Sent {len(wav):,} bytes WAV -> HTTP {r.status_code}")
     except Exception as e:
-        print(f"  [{label}] Error: {e}")
+        print(f"  [{label}] relay error: {e}")
 
 def run_channel(channel_key, url, label):
-    """Run a single BPD channel relay loop."""
     print(f"[{label}] Starting...")
     while True:
-        frames = []; start = time.time()
+        accumulated = []
+        chunk_start = time.time()
 
         def on_msg(ws, msg):
             if isinstance(msg, bytes) and msg:
-                # Strip 12-byte proprietary RapidSOS header
-                # Format: [0-1]=type(0x0001) [2-5]=reserved [6-9]=timestamp [10-11]=seq [12+]=Opus
+                # Strip 12-byte RapidSOS header: [0-1]=type [2-5]=reserved [6-9]=ts [10-11]=seq
                 if len(msg) > 12 and msg[:2] == b'\x00\x01':
                     opus_frame = msg[12:]
                 else:
-                    opus_frame = msg  # fallback: use raw
+                    opus_frame = msg
                 if opus_frame:
-                    frames.append(opus_frame)
+                    accumulated.append(opus_frame)
             elif isinstance(msg, str):
                 try:
                     m = json.loads(msg)
-                    if m.get("action") == "tx_start":
-                        print(f"  [{label}] TX start")
-                    elif m.get("action") == "tx_end":
-                        print(f"  [{label}] TX end — {len(frames)} frames")
+                    if m.get("action") == "tx_end":
+                        print(f"  [{label}] TX end — {len(accumulated)} total frames")
                 except: pass
-            if time.time() - start >= CHUNK_SECS: ws.close()
+            if time.time() - chunk_start >= CHUNK_SECS:
+                ws.close()
 
         def on_open(ws):
             print(f"[{label}] Connected")
@@ -154,41 +128,32 @@ def run_channel(channel_key, url, label):
                     time.sleep(10)
             threading.Thread(target=hb, daemon=True).start()
 
-        def on_err(ws, e):
-            print(f"[{label}] Error: {e}")
+        def on_err(ws, e): print(f"[{label}] Error: {e}")
 
         def on_close(ws, c, m):
-            print(f"[{label}] Closed — {len(frames)} frames")
-            if len(frames) > 2:
-                relay(frames, channel_key, label)
+            total = len(accumulated)
+            print(f"[{label}] Sending {total} frames ({CHUNK_SECS}s window)")
+            if total > 2:
+                relay(accumulated, channel_key, label)
             else:
                 print(f"  [{label}] Too few frames — skipping")
 
-        ws = websocket.WebSocketApp(
-            url,
-            on_open=on_open,
-            on_message=on_msg,
-            on_error=on_err,
-            on_close=on_close,
-        )
+        ws = websocket.WebSocketApp(url, on_open=on_open, on_message=on_msg,
+            on_error=on_err, on_close=on_close)
         ws.run_forever()
-        time.sleep(2)
+        time.sleep(1)
 
 def run():
-    print("Hood Brief BPD Relay — 6 Channels (No Cookie)")
+    print("Hood Brief BPD Relay — 6 Channels + ffmpeg WAV encoding")
     print(f"Target: {RAILWAY_URL or 'NOT SET'}")
-    print(f"Channels: {len(CHANNELS)}")
-
     threads = []
     for key, (url, label) in CHANNELS.items():
         t = threading.Thread(target=run_channel, args=(key, url, label), daemon=True, name=key)
         t.start()
         threads.append(t)
-        time.sleep(1)  # stagger starts
-
+        time.sleep(1)
     print("All channels running.")
-    for t in threads:
-        t.join()
+    for t in threads: t.join()
 
 if __name__ == "__main__":
     run()
