@@ -77,17 +77,48 @@ def get_priority(group, offense_desc, shooting):
     if any(p in g for p in P2_GROUPS): return "p2"
     return "p3"
 
+def fetch_dataset_sql(resource_id, where=None, order=None, limit=5000):
+    """Fetch using CKAN SQL endpoint for filtering and sorting."""
+    try:
+        sql = f'SELECT * FROM "{resource_id}"'
+        if where:
+            sql += f" WHERE {where}"
+        if order:
+            sql += f" ORDER BY {order}"
+        sql += f" LIMIT {limit}"
+        
+        r = requests.get(
+            "https://data.boston.gov/api/3/action/datastore_search_sql",
+            params={"sql": sql},
+            timeout=30,
+            headers={"User-Agent": "Hood Brief/1.0"}
+        )
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("success"):
+                recs = data["result"]["records"]
+                print(f"[CKAN] SQL fetched {len(recs)} from {resource_id[:8]}")
+                return recs
+            print(f"[CKAN] SQL error: {data.get('error',{})}")
+        else:
+            print(f"[CKAN] SQL HTTP {r.status_code}")
+    except Exception as e:
+        print(f"[CKAN] SQL error: {e}")
+    return []
+
 def get_col(row, *keys):
     for k in keys:
         if k in row and row[k] not in (None, "", "None"):
             return row[k]
     return ""
 
-def fetch_dataset(resource_id, limit=5000, offset=0, sort=None):
+def fetch_dataset(resource_id, limit=5000, offset=0, sort=None, filters=None):
     try:
         params = {"resource_id": resource_id, "limit": limit, "offset": offset}
         if sort:
             params["sort"] = sort
+        if filters:
+            params["filters"] = str(filters).replace("'", '"')
         for attempt in range(3):
             r = requests.get(CKAN_BASE,
                 params=params,
@@ -281,8 +312,13 @@ def run():
     while True:
         print(f"\n[CKAN] Cycle {cycle+1} — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
-        # Crime incidents — fetch most recent 5000 (sorted by date DESC)
-        recs = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=5000, sort="OCCURRED_ON_DATE desc")
+        # Crime incidents — filter to 2026, sorted by date DESC
+        recs = fetch_dataset_sql(
+            RESOURCE_IDS["crime_incidents"],
+            where="YEAR=2026",
+            order="OCCURRED_ON_DATE DESC",
+            limit=5000
+        )
         if recs:
             rows = process_incidents(recs)
             # Clear old data and replace with fresh pull
