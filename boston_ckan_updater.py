@@ -3,7 +3,7 @@ Hood Brief Boston — Multi-Dataset CKAN Updater v3
 Uses b973d8cb resource which has lat/lng, street, UCR_PART, OFFENSE_CODE_GROUP
 for proper priority classification and address display.
 """
-import os, time, random
+import os, time, random, threading
 import requests
 from datetime import datetime, timezone
 
@@ -298,36 +298,119 @@ def rebuild_heatmap():
             json=pts[i:i+500], timeout=20)
     print(f"[Heatmap] {len(pts):,} points rebuilt")
 
+import http.server, threading, io
+
+ARCGIS_PORT = int(os.environ.get("RELAY_PORT", "8080"))
+RELAY_SECRET = os.environ.get("RELAY_SECRET", "hoodbrief")
+
+P1_CRIMES = {
+    'aggravated assault','robbery','homicide','rape','murder',
+    'shooting','carjacking','human trafficking','kidnapping'
+}
+P2_CRIMES = {
+    'burglary','larceny','vandalism','arson','fraud','weapons',
+    'drug violation','simple assault','motor vehicle theft',
+    'trespassing','disorderly conduct','warrant'
+}
+MEDICAL_CRIMES = {
+    'medical assistance','sudden death','investigate person',
+    'missing person','fire'
+}
+
+def get_priority_arcgis(crime, crime_category, crime_part):
+    c = (crime or "").lower()
+    cat = (crime_category or "").lower()
+    part = (crime_part or "").lower()
+    if cat == "violent" or any(p in c for p in P1_CRIMES): return "p1"
+    if any(p in c for p in MEDICAL_CRIMES): return "medical"
+    if cat == "property" or "part one" in part or any(p in c for p in P2_CRIMES): return "p2"
+    return "p3"
+
+def process_arcgis_csv(csv_text):
+    """Process ArcGIS CSV and upsert to boston_incidents."""
+    import csv as _csv
+    rows = []
+    reader = _csv.DictReader(io.StringIO(csv_text))
+    for r in reader:
+        try:
+            street = r.get("Block Address","").strip()
+            district = r.get("BPD District","").strip().upper()
+            crime = r.get("Crime","").strip()
+            crime_cat = r.get("Crime Category","").strip()
+            crime_part = r.get("Crime Part","").strip()
+            inc_num = r.get("Incident Number","").strip()
+            from_date = r.get("From Date","").strip()
+            neighborhood = r.get("Neighborhood","").strip()
+            if not inc_num: continue
+            priority = get_priority_arcgis(crime, crime_cat, crime_part)
+            rows.append({
+                "incident_number": inc_num,
+                "offense_desc":    crime,
+                "occurred_on":     from_date,
+                "lat":             None,
+                "lng":             None,
+                "shooting":        "shooting" in crime.lower(),
+                "district":        district,
+                "location":        street or neighborhood or f"District {district}",
+                "priority":        priority,
+                "title":           crime,
+            })
+        except Exception:
+            continue
+    if not rows:
+        return 0
+    # Clear and replace
+    requests.delete(
+        f"{SUPABASE_URL}/rest/v1/boston_incidents",
+        headers={**HEADERS, "Prefer": "return=minimal"},
+        params={"incident_number": "neq.XXXXXXX"},
+        timeout=20,
+    )
+    inserted = 0
+    for i in range(0, len(rows), 500):
+        batch = rows[i:i+500]
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/boston_incidents",
+            headers={**HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"},
+            json=batch, timeout=30,
+        )
+        if r.status_code in (200,201,204):
+            inserted += len(batch)
+    print(f"[ArcGIS] Upserted {inserted}/{len(rows)} incidents")
+    return inserted
+
+class ArcGISHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, format, *args): pass
+    def do_POST(self):
+        if self.path != "/arcgis-data": 
+            self.send_response(404); self.end_headers(); return
+        secret = self.headers.get("X-Relay-Secret","")
+        if secret != RELAY_SECRET:
+            self.send_response(403); self.end_headers(); return
+        length = int(self.headers.get("Content-Length",0))
+        csv_text = self.rfile.read(length).decode("utf-8")
+        self.send_response(200); self.end_headers()
+        print(f"[ArcGIS] Received {len(csv_text):,} bytes CSV")
+        threading.Thread(target=process_arcgis_csv, args=(csv_text,), daemon=True).start()
+
+def start_arcgis_receiver():
+    server = http.server.HTTPServer(("0.0.0.0", ARCGIS_PORT), ArcGISHandler)
+    print(f"[ArcGIS] Receiver listening on port {ARCGIS_PORT}")
+    server.serve_forever()
+
 def run():
     print("╔══════════════════════════════════════════╗")
     print("║  Hood Brief Boston — Multi-Dataset Sync  ║")
     print("║  Crime · Shootings · Shots Fired · Daily ║")
     print("╚══════════════════════════════════════════╝")
+    # Start ArcGIS CSV receiver
+    threading.Thread(target=start_arcgis_receiver, daemon=True).start()
     cycle = 0
     while True:
         print(f"\n[CKAN] Cycle {cycle+1} — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
-        # Crime incidents — fetch recent data using high offsets
-        # Dataset ~323k rows; 2026 starts ~row 283k
-        # Fetch 3 batches from the end to get recent data
-        recs = []
-        for offset in [315000, 308000, 300000]:
-            batch = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=2000, offset=offset)
-            if batch:
-                # Check if we got 2026 data
-                years = set(str(r.get("YEAR","")) for r in batch[:5])
-                print(f"[CKAN] Offset {offset}: years={years}")
-                recs.extend(batch)
-            time.sleep(3)
-        # Also get last 1000 which are definitely most recent
-        last = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=1000, offset=320000)
-        if last:
-            recs.extend(last)
-        if not recs:
-            recs = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=5000)
-        # Deduplicate
-        seen = set()
-        recs = [r for r in recs if not (r.get("_id") in seen or seen.add(r.get("_id")))]
+        # Crime incidents — fetch all available records (dataset has ~5000 rows)
+        recs = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=5000)
         if recs:
             rows = process_incidents(recs)
             # Clear old data and replace with fresh pull
