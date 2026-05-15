@@ -17,6 +17,14 @@ HEADERS = {
     "Prefer": "resolution=merge-duplicates,return=minimal",
 }
 
+# Headers that silently ignore duplicates
+HEADERS_IGNORE = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "resolution=ignore-duplicates,return=minimal",
+}
+
 CKAN_BASE = "https://data.boston.gov/api/3/action/datastore_search"
 
 RESOURCE_IDS = {
@@ -26,12 +34,17 @@ RESOURCE_IDS = {
 }
 
 DISTRICT_CENTROIDS = {
-    "A1":  (42.3614, -71.0576), "A7":  (42.3697, -71.0335),
+    "A1":  (42.3614, -71.0576), "A15": (42.3614, -71.0576),  # A15 = A1
+    "A7":  (42.3697, -71.0335),
     "B2":  (42.3289, -71.0839), "B3":  (42.2932, -71.0801),
     "C6":  (42.3376, -71.0527), "C11": (42.3040, -71.0633),
     "D4":  (42.3421, -71.0724), "D14": (42.3521, -71.1546),
     "E5":  (42.2890, -71.1605), "E13": (42.3131, -71.1116),
     "E18": (42.2561, -71.1275),
+    # Common aliases
+    "A":   (42.3614, -71.0576), "B":   (42.3289, -71.0839),
+    "C":   (42.3376, -71.0527), "D":   (42.3421, -71.0724),
+    "E":   (42.2890, -71.1605),
 }
 
 # Priority classification from OFFENSE_CODE_GROUP
@@ -171,24 +184,25 @@ def process_shots_fired(records):
 def clear_table(table):
     """Delete all rows from table before fresh insert."""
     try:
-        # Use id > 0 to catch all rows (id is always positive bigserial)
+        # Use created_at filter which exists on all tables
         r = requests.delete(
             f"{SUPABASE_URL}/rest/v1/{table}",
             headers={**HEADERS, "Prefer": "return=minimal"},
-            params={"id": "gt.0"},
+            params={"created_at": "gte.2000-01-01"},
             timeout=20,
         )
         print(f"[CKAN] Cleared {table}: HTTP {r.status_code}")
     except Exception as e:
         print(f"[CKAN] Clear error {table}: {e}")
 
-def upsert_batch(table, rows):
+def upsert_batch(table, rows, headers=None):
     if not rows: return 0
+    if headers is None: headers = HEADERS
     inserted = 0
     for i in range(0, len(rows), 200):
         batch = rows[i:i+200]
         r = requests.post(f"{SUPABASE_URL}/rest/v1/{table}",
-            headers=HEADERS, json=batch, timeout=20)
+            headers=headers, json=batch, timeout=20)
         if r.status_code in (200, 201, 204):
             inserted += len(batch)
         else:
@@ -272,7 +286,8 @@ def run():
         recs = fetch_dataset(RESOURCE_IDS["shots_fired"])
         if recs:
             clear_table("boston_shots_fired")
-            n = upsert_batch("boston_shots_fired", process_shots_fired(recs))
+            time.sleep(2)  # Wait for clear to propagate
+            n = upsert_batch("boston_shots_fired", process_shots_fired(recs), headers=HEADERS_IGNORE)
             print(f"[CKAN] Shots fired: {n} replaced")
 
         if cycle % 7 == 0:
