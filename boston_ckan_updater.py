@@ -426,14 +426,9 @@ def run():
     while True:
         print(f"\n[CKAN] Cycle {cycle+1} — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
-        # Crime incidents — fetch all available records (dataset has ~5000 rows)
-        recs = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=5000)
-        if recs:
-            rows = process_incidents(recs)
-            # Clear old data and replace with fresh pull
-            clear_table("boston_incidents")
-            n = upsert_batch("boston_incidents", rows)
-            print(f"[CKAN] Crime incidents: {n} replaced")
+        # Crime incidents handled by ArcGIS relay (Oracle VM -> /arcgis-data)
+        # CKAN b973d8cb only has ~5000 records with 3-week lag — skip it
+        print("[CKAN] Skipping crime incidents — handled by ArcGIS relay")
 
         time.sleep(5)
 
