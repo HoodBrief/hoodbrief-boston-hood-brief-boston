@@ -330,53 +330,70 @@ def process_arcgis_csv(csv_text):
     """Process ArcGIS CSV and upsert to boston_incidents."""
     import csv as _csv
     rows = []
-    reader = _csv.DictReader(io.StringIO(csv_text))
-    for r in reader:
-        try:
-            street = r.get("Block Address","").strip()
-            district = r.get("BPD District","").strip().upper()
-            crime = r.get("Crime","").strip()
-            crime_cat = r.get("Crime Category","").strip()
-            crime_part = r.get("Crime Part","").strip()
-            inc_num = r.get("Incident Number","").strip()
-            from_date = r.get("From Date","").strip()
-            neighborhood = r.get("Neighborhood","").strip()
-            if not inc_num: continue
-            priority = get_priority_arcgis(crime, crime_cat, crime_part)
-            rows.append({
-                "incident_number": inc_num,
-                "offense_desc":    crime,
-                "occurred_on":     from_date,
-                "lat":             None,
-                "lng":             None,
-                "shooting":        "shooting" in crime.lower(),
-                "district":        district,
-                "location":        street or neighborhood or f"District {district}",
-                "priority":        priority,
-                "title":           crime,
-            })
-        except Exception:
-            continue
-    if not rows:
+    try:
+        reader = _csv.DictReader(io.StringIO(csv_text))
+        for r in reader:
+            try:
+                street = r.get("Block Address","").strip()
+                district = r.get("BPD District","").strip().upper()
+                crime = r.get("Crime","").strip()
+                crime_cat = r.get("Crime Category","").strip()
+                crime_part = r.get("Crime Part","").strip()
+                inc_num = r.get("Incident Number","").strip()
+                from_date = r.get("From Date","").strip()
+                neighborhood = r.get("Neighborhood","").strip()
+                if not inc_num: continue
+                priority = get_priority_arcgis(crime, crime_cat, crime_part)
+                rows.append({
+                    "incident_number": inc_num,
+                    "offense_desc":    crime,
+                    "occurred_on":     from_date,
+                    "lat":             None,
+                    "lng":             None,
+                    "shooting":        "shooting" in crime.lower(),
+                    "district":        district,
+                    "location":        street or neighborhood or f"District {district}",
+                    "priority":        priority,
+                    "title":           crime,
+                })
+            except Exception as e:
+                continue
+        print(f"[ArcGIS] Parsed {len(rows):,} rows from CSV")
+    except Exception as e:
+        print(f"[ArcGIS] CSV parse error: {e}")
         return 0
-    # Clear and replace
-    requests.delete(
+
+    if not rows:
+        print("[ArcGIS] No rows parsed — check CSV format")
+        return 0
+
+    # Clear existing data
+    del_r = requests.delete(
         f"{SUPABASE_URL}/rest/v1/boston_incidents",
         headers={**HEADERS, "Prefer": "return=minimal"},
         params={"incident_number": "neq.XXXXXXX"},
-        timeout=20,
+        timeout=30,
     )
+    print(f"[ArcGIS] Cleared boston_incidents: HTTP {del_r.status_code}")
+
+    # Insert in batches
     inserted = 0
+    upsert_headers = {**HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"}
     for i in range(0, len(rows), 500):
         batch = rows[i:i+500]
-        r = requests.post(
-            f"{SUPABASE_URL}/rest/v1/boston_incidents",
-            headers={**HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"},
-            json=batch, timeout=30,
-        )
-        if r.status_code in (200,201,204):
-            inserted += len(batch)
-    print(f"[ArcGIS] Upserted {inserted}/{len(rows)} incidents")
+        try:
+            r = requests.post(
+                f"{SUPABASE_URL}/rest/v1/boston_incidents",
+                headers=upsert_headers,
+                json=batch, timeout=30,
+            )
+            if r.status_code in (200,201,204):
+                inserted += len(batch)
+            else:
+                print(f"[ArcGIS] Batch error: {r.status_code} {r.text[:80]}")
+        except Exception as e:
+            print(f"[ArcGIS] Batch exception: {e}")
+    print(f"[ArcGIS] ✅ Upserted {inserted:,}/{len(rows):,} incidents")
     return inserted
 
 class ArcGISHandler(http.server.BaseHTTPRequestHandler):
