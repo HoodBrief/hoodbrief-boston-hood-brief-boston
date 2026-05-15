@@ -183,12 +183,20 @@ def process_shots_fired(records):
 
 def clear_table(table):
     """Delete all rows from table before fresh insert."""
+    # Use the appropriate unique key for each table
+    filters = {
+        "boston_incidents":   {"incident_number": "neq.XXXXXXX"},
+        "boston_shootings":   {"incident_id": "neq.XXXXXXX"},
+        "boston_shots_fired": {"incident_id": "neq.XXXXXXX"},
+        "boston_heatmap_points": {"id": "gt.0"},
+    }
+    # Fallback: delete where lat is not null (all geo records)
+    params = filters.get(table, {"lat": "not.is.null"})
     try:
-        # Use created_at filter which exists on all tables
         r = requests.delete(
             f"{SUPABASE_URL}/rest/v1/{table}",
             headers={**HEADERS, "Prefer": "return=minimal"},
-            params={"created_at": "gte.2000-01-01"},
+            params=params,
             timeout=20,
         )
         print(f"[CKAN] Cleared {table}: HTTP {r.status_code}")
@@ -276,8 +284,10 @@ def run():
         # Shootings — replace all
         recs = fetch_dataset(RESOURCE_IDS["shootings"])
         if recs:
+            rows = process_shootings(recs)
+            print(f"[CKAN] Shootings processed: {len(rows)} rows from {len(recs)} records")
             clear_table("boston_shootings")
-            n = upsert_batch("boston_shootings", process_shootings(recs))
+            n = upsert_batch("boston_shootings", rows)
             print(f"[CKAN] Shootings: {n} replaced")
 
         time.sleep(5)
