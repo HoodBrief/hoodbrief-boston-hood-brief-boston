@@ -89,7 +89,8 @@ def fetch_dataset(resource_id, limit=5000, offset=0, sort=None, filters=None):
         if sort:
             params["sort"] = sort
         if filters:
-            params["filters"] = str(filters).replace("'", '"')
+            import json as _json
+            params["filters"] = _json.dumps(filters)
         for attempt in range(3):
             r = requests.get(CKAN_BASE,
                 params=params,
@@ -106,6 +107,28 @@ def fetch_dataset(resource_id, limit=5000, offset=0, sort=None, filters=None):
     except Exception as e:
         print(f"[CKAN] Error: {e}")
     return []
+
+def geocode_address(street, district):
+    """Free geocoding via Nominatim (OpenStreetMap). Rate limit: 1 req/sec."""
+    if not street:
+        return None, None
+    try:
+        addr = f"{street}, Boston, MA"
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": addr, "format": "json", "limit": 1, "countrycodes": "us"},
+            headers={"User-Agent": "HoodBrief/1.0 (contact@hoodbrief.com)"},
+            timeout=5,
+        )
+        results = r.json()
+        if results:
+            lat = float(results[0]["lat"])
+            lng = float(results[0]["lon"])
+            if 42.2 <= lat <= 42.4 and -71.2 <= lng <= -70.9:
+                return lat, lng
+    except Exception:
+        pass
+    return None, None
 
 def process_incidents(records):
     rows = []
@@ -157,8 +180,9 @@ def process_shootings(records):
                 "district":     d,
                 "fatal":        str(stype).strip().lower() == "fatal",
                 "victim_count": (2 if str(get_col(r, "multi_victim", "Multi_Victim")).lower() in ("t","true","1","yes") else 1),
-                "lat": c[0] + random.uniform(-0.004, 0.004),
-                "lng": c[1] + random.uniform(-0.004, 0.004),
+                # No lat/lng — shootings show in feed only, not mapped (no street address)
+                "lat": None,
+                "lng": None,
                 "priority": "p1",
             })
         except Exception as e:
