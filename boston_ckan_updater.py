@@ -307,13 +307,10 @@ def run():
     while True:
         print(f"\n[CKAN] Cycle {cycle+1} — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
-        # Crime incidents — filter to 2026, sorted by date DESC
-        recs = fetch_dataset_sql(
-            RESOURCE_IDS["crime_incidents"],
-            where="YEAR=2026",
-            order="OCCURRED_ON_DATE DESC",
-            limit=5000
-        )
+        # Crime incidents — fetch 2026 data using CKAN filters
+        recs = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=5000, filters={"YEAR": "2026"})
+        if not recs:  # fallback
+            recs = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=5000)
         if recs:
             rows = process_incidents(recs)
             # Clear old data and replace with fresh pull
