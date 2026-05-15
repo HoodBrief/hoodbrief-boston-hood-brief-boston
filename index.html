@@ -582,7 +582,8 @@ function updateStats(){
   const all=S.incidents;
   document.getElementById("stat-total").innerHTML=`<b>${all.length}</b> total`;
   const shots=all.filter(i=>i.source==="shootings"||i.feed==="shootings").length;
-  document.getElementById("stat-shootings").innerHTML=`<b>${shots}</b> shootings`;
+  const fired=all.filter(i=>i.source==="shots_fired"||i.feed==="shots_fired").length;
+  document.getElementById("stat-shootings").innerHTML=`<b>${shots}</b> shootings · <b>${fired}</b> shots fired`;
 }
 
 /* ── TOAST ───────────────────────────────────────────────────────────────────── */
