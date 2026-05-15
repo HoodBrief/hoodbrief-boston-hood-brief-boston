@@ -78,33 +78,43 @@ def get_priority(group, offense_desc, shooting):
     return "p3"
 
 def fetch_dataset_sql(resource_id, where=None, order=None, limit=5000):
-    """Fetch using CKAN SQL endpoint for filtering and sorting."""
-    try:
-        sql = f'SELECT * FROM "{resource_id}"'
-        if where:
-            sql += f" WHERE {where}"
-        if order:
-            sql += f" ORDER BY {order}"
-        sql += f" LIMIT {limit}"
-        
-        r = requests.get(
-            "https://data.boston.gov/api/3/action/datastore_search_sql",
-            params={"sql": sql},
-            timeout=30,
-            headers={"User-Agent": "Hood Brief/1.0"}
-        )
-        if r.status_code == 200:
-            data = r.json()
-            if data.get("success"):
-                recs = data["result"]["records"]
-                print(f"[CKAN] SQL fetched {len(recs)} from {resource_id[:8]}")
-                return recs
-            print(f"[CKAN] SQL error: {data.get('error',{})}")
-        else:
-            print(f"[CKAN] SQL HTTP {r.status_code}")
-    except Exception as e:
-        print(f"[CKAN] SQL error: {e}")
-    return []
+    """Fetch using CKAN SQL endpoint with retry, fallback to datastore_search."""
+    sql = f'SELECT * FROM "{resource_id}"'
+    if where:
+        sql += f" WHERE {where}"
+    if order:
+        sql += f" ORDER BY {order}"
+    sql += f" LIMIT {limit}"
+
+    # Try SQL endpoint with retries
+    for attempt in range(3):
+        try:
+            r = requests.get(
+                "https://data.boston.gov/api/3/action/datastore_search_sql",
+                params={"sql": sql},
+                timeout=30,
+                headers={"User-Agent": "Hood Brief/1.0"}
+            )
+            if r.status_code == 409:
+                wait = (attempt + 1) * 20
+                print(f"[CKAN] SQL rate limited — waiting {wait}s (attempt {attempt+1})")
+                time.sleep(wait)
+                continue
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("success"):
+                    recs = data["result"]["records"]
+                    print(f"[CKAN] SQL fetched {len(recs)} from {resource_id[:8]}")
+                    return recs
+            print(f"[CKAN] SQL HTTP {r.status_code} — falling back to datastore_search")
+            break
+        except Exception as e:
+            print(f"[CKAN] SQL error: {e}")
+            break
+
+    # Fallback: datastore_search without date filter
+    print(f"[CKAN] Falling back to datastore_search for {resource_id[:8]}")
+    return fetch_dataset(resource_id, limit=limit)
 
 def get_col(row, *keys):
     for k in keys:
