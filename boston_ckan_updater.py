@@ -138,28 +138,39 @@ def process_incidents(records):
 def process_shootings(records):
     rows = []
     missing_districts = set()
+    errors = []
     for r in records:
         try:
             d = (get_col(r, "district", "District") or "").strip().upper()
             c = DISTRICT_CENTROIDS.get(d)
             if not c:
-                missing_districts.add(d)
+                missing_districts.add(repr(d))
                 continue
             stype = get_col(r, "shooting_type_v2", "Shooting_Type_V2")
+            inc_id = str(get_col(r, "incident_num", "Incident_Num", "_id"))
+            occurred = get_col(r, "shooting_date", "Shooting_Date")
             rows.append({
-                "incident_id":  str(get_col(r, "incident_num", "Incident_Num", "_id")),
-                "occurred_on":  get_col(r, "shooting_date", "Shooting_Date"),
+                "incident_id":  inc_id,
+                "occurred_on":  occurred,
                 "district":     d,
-                "fatal":        str(stype).strip() == "Fatal",
+                "fatal":        str(stype).strip().lower() == "fatal",
                 "victim_count": int(get_col(r, "multi_victim", "Multi_Victim") or 0) + 1,
                 "lat": c[0] + random.uniform(-0.004, 0.004),
                 "lng": c[1] + random.uniform(-0.004, 0.004),
                 "priority": "p1",
             })
-        except Exception:
+        except Exception as e:
+            errors.append(str(e))
             continue
+    print(f"[CKAN] Shootings: {len(rows)} built, {len(missing_districts)} missing districts, {len(errors)} errors")
     if missing_districts:
-        print(f"[CKAN] Shootings missing districts: {missing_districts}")
+        print(f"[CKAN] Missing: {list(missing_districts)[:10]}")
+    if errors:
+        print(f"[CKAN] Errors: {errors[:3]}")
+    # Print first record for debug
+    if records:
+        print(f"[CKAN] Sample record keys: {list(records[0].keys())}")
+        print(f"[CKAN] Sample district value: {repr(records[0].get('district',''))}")
     return rows
 
 def process_shots_fired(records):
