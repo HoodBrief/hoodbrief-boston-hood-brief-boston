@@ -124,11 +124,14 @@ def process_incidents(records):
 
 def process_shootings(records):
     rows = []
+    missing_districts = set()
     for r in records:
         try:
             d = (get_col(r, "district", "District") or "").strip().upper()
             c = DISTRICT_CENTROIDS.get(d)
-            if not c: continue
+            if not c:
+                missing_districts.add(d)
+                continue
             stype = get_col(r, "shooting_type_v2", "Shooting_Type_V2")
             rows.append({
                 "incident_id":  str(get_col(r, "incident_num", "Incident_Num", "_id")),
@@ -142,6 +145,8 @@ def process_shootings(records):
             })
         except Exception:
             continue
+    if missing_districts:
+        print(f"[CKAN] Shootings missing districts: {missing_districts}")
     return rows
 
 def process_shots_fired(records):
@@ -166,13 +171,14 @@ def process_shots_fired(records):
 def clear_table(table):
     """Delete all rows from table before fresh insert."""
     try:
+        # Use id > 0 to catch all rows (id is always positive bigserial)
         r = requests.delete(
             f"{SUPABASE_URL}/rest/v1/{table}",
             headers={**HEADERS, "Prefer": "return=minimal"},
-            params={"id": "not.is.null"},
+            params={"id": "gt.0"},
             timeout=20,
         )
-        print(f"[CKAN] Cleared {table}: {r.status_code}")
+        print(f"[CKAN] Cleared {table}: HTTP {r.status_code}")
     except Exception as e:
         print(f"[CKAN] Clear error {table}: {e}")
 
