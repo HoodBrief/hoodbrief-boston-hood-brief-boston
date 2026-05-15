@@ -154,7 +154,7 @@ def process_shootings(records):
                 "occurred_on":  occurred,
                 "district":     d,
                 "fatal":        str(stype).strip().lower() == "fatal",
-                "victim_count": int(get_col(r, "multi_victim", "Multi_Victim") or 0) + 1,
+                "victim_count": (2 if str(get_col(r, "multi_victim", "Multi_Victim")).lower() in ("t","true","1","yes") else 1),
                 "lat": c[0] + random.uniform(-0.004, 0.004),
                 "lng": c[1] + random.uniform(-0.004, 0.004),
                 "priority": "p1",
