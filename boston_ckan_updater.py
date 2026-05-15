@@ -307,10 +307,27 @@ def run():
     while True:
         print(f"\n[CKAN] Cycle {cycle+1} — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
-        # Crime incidents — fetch 2026 data using CKAN filters
-        recs = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=5000, filters={"YEAR": "2026"})
-        if not recs:  # fallback
+        # Crime incidents — fetch recent data using high offsets
+        # Dataset ~323k rows; 2026 starts ~row 283k
+        # Fetch 3 batches from the end to get recent data
+        recs = []
+        for offset in [315000, 308000, 300000]:
+            batch = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=2000, offset=offset)
+            if batch:
+                # Check if we got 2026 data
+                years = set(str(r.get("YEAR","")) for r in batch[:5])
+                print(f"[CKAN] Offset {offset}: years={years}")
+                recs.extend(batch)
+            time.sleep(3)
+        # Also get last 1000 which are definitely most recent
+        last = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=1000, offset=320000)
+        if last:
+            recs.extend(last)
+        if not recs:
             recs = fetch_dataset(RESOURCE_IDS["crime_incidents"], limit=5000)
+        # Deduplicate
+        seen = set()
+        recs = [r for r in recs if not (r.get("_id") in seen or seen.add(r.get("_id")))]
         if recs:
             rows = process_incidents(recs)
             # Clear old data and replace with fresh pull
