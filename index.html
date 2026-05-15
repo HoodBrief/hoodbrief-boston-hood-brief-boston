@@ -101,6 +101,8 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 .chip[data-f="shooting"].active{background:var(--red);}
 .chip[data-f="shots_fired"].active{background:var(--amber);}
 .chip[data-f="ckan"].active{background:var(--boston);}
+.chip[data-f="medical"].active{background:var(--blue);}
+.chip[data-f="gang"].active{background:var(--gang);color:#fff;}
 .chip[data-f="consulate"].active{background:var(--lime);color:var(--bg);}
 .chip[data-f="p3"].active{background:var(--text3);}
 
@@ -254,10 +256,10 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   <span class="filter-bar-label">Priority</span>
   <button class="chip active" data-f="all">All</button>
   <button class="chip" data-f="p1">🔴 P1</button>
-  <button class="chip" data-f="shooting">🔫 Shooting</button>
-  <button class="chip" data-f="shots_fired">💥 Shots Fired</button>
   <button class="chip" data-f="p2">🟡 P2</button>
+  <button class="chip" data-f="medical">🔵 Medical</button>
   <button class="chip" data-f="p3">⚪ Routine</button>
+  <button class="chip" data-f="gang">⚠ Gang Zone</button>
   <button class="chip" data-f="consulate">🏛 Diplomatic</button>
 </div>
 
@@ -265,8 +267,6 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 <div class="filter-bar" id="source-bar">
   <span class="filter-bar-label">Source</span>
   <button class="chip active" data-s="all">All</button>
-  <button class="chip" data-s="shootings">🔴 Shootings</button>
-  <button class="chip" data-s="shots_fired">💥 Shots Fired</button>
   <button class="chip" data-s="ckan">📋 Crime Reports</button>
 </div>
 
@@ -323,6 +323,24 @@ const BPD_DISTRICTS = {
   E13: {name:"E13 — Jamaica Plain",       color:"#06b6d4", center:[42.3099,-71.1148]},
   E18: {name:"E18 — Hyde Park",           color:"#84cc16", center:[42.2558,-71.1253]},
 };
+
+const BOSTON_GANG_ZONES = [
+  {name:"Orchard Park",        neighborhood:"Roxbury",       district:"B2",  lat:42.3279, lng:-71.0832},
+  {name:"Academy Homes",       neighborhood:"Roxbury",       district:"B2",  lat:42.3243, lng:-71.0901},
+  {name:"Bromley-Heath",       neighborhood:"Jamaica Plain", district:"E13", lat:42.3153, lng:-71.1057},
+  {name:"Franklin Field",      neighborhood:"Dorchester",    district:"C11", lat:42.3006, lng:-71.0614},
+  {name:"Grove Hall",          neighborhood:"Dorchester",    district:"B3",  lat:42.3089, lng:-71.0760},
+  {name:"Lenox Street",        neighborhood:"Roxbury",       district:"B2",  lat:42.3327, lng:-71.0847},
+  {name:"Mission Hill",        neighborhood:"Mission Hill",  district:"D4",  lat:42.3322, lng:-71.0993},
+  {name:"Codman Square",       neighborhood:"Dorchester",    district:"C11", lat:42.2938, lng:-71.0688},
+  {name:"Wendover Street",     neighborhood:"Dorchester",    district:"C11", lat:42.3045, lng:-71.0573},
+  {name:"Intervale Street",    neighborhood:"Roxbury",       district:"B2",  lat:42.3197, lng:-71.0832},
+  {name:"Humboldt Ave",        neighborhood:"Roxbury",       district:"B2",  lat:42.3225, lng:-71.0876},
+  {name:"Blue Hill Corridor",  neighborhood:"Mattapan",      district:"B3",  lat:42.2893, lng:-71.0887},
+  {name:"Morton Street",       neighborhood:"Mattapan",      district:"B3",  lat:42.2778, lng:-71.0923},
+  {name:"Four Corners",        neighborhood:"Dorchester",    district:"C11", lat:42.3008, lng:-71.0739},
+  {name:"Geneva Ave",          neighborhood:"Dorchester",    district:"C11", lat:42.2963, lng:-71.0659},
+];
 
 const BPD_STATIONS = [
   {d:"A1",  name:"Area A-1",  addr:"40 New Sudbury St",   lat:42.3614, lng:-71.0576},
@@ -384,6 +402,25 @@ function initMap(){
 }
 
 function loadStationMarkers(){ /* Stations hidden — use Districts chip */ }
+
+function loadGangZoneMarkers(){
+  BOSTON_GANG_ZONES.forEach(z=>{
+    const icon = L.divIcon({
+      className:"",
+      html:`<div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid var(--gang);filter:drop-shadow(0 0 4px rgba(255,107,26,0.6));opacity:0.85"></div>`,
+      iconSize:[14,12], iconAnchor:[7,12]
+    });
+    const m = L.marker([z.lat, z.lng], {icon, zIndexOffset:-80}).addTo(S.map);
+    m.bindPopup(`
+      <div style="font-family:'Space Grotesk',sans-serif;min-width:180px">
+        <div class="p-badge" style="background:var(--gang-dim);color:var(--gang);border:1px solid var(--gang-bdr)">⚠ GANG ACTIVITY ZONE</div>
+        <div class="p-title">${z.name}</div>
+        <div class="p-row">📍 <b>${z.neighborhood}</b></div>
+        <div class="p-district">🏢 District ${z.district}</div>
+      </div>`);
+  });
+  console.log(`[Gang Zones] ${BOSTON_GANG_ZONES.length} hotspots loaded`);
+}
 
 async function loadDistrictBoundaries(){
   try{
@@ -480,7 +517,8 @@ function getVisible(){
     if(S.filterP!=="all"){
       if(S.filterP==="shooting" && inc.source!=="shootings" && inc.feed!=="shootings") return false;
       if(S.filterP==="shots_fired" && inc.source!=="shots_fired" && inc.feed!=="shots_fired") return false;
-      if(S.filterP==="consulate" && !inc.near_consulate) return false;
+      if(S.filterP==="gang" && !inc.near_gang) return false;
+    if(S.filterP==="consulate" && !inc.near_consulate) return false;
       if(S.filterP==="p1"&&inc.priority!=="p1") return false;
       if(S.filterP==="p2"&&inc.priority!=="p2") return false;
       if(S.filterP==="p3"&&inc.priority!=="p3") return false;
@@ -581,9 +619,8 @@ function selectIncident(id){
 function updateStats(){
   const all=S.incidents;
   document.getElementById("stat-total").innerHTML=`<b>${all.length}</b> total`;
-  const shots=all.filter(i=>i.source==="shootings"||i.feed==="shootings").length;
-  const fired=all.filter(i=>i.source==="shots_fired"||i.feed==="shots_fired").length;
-  document.getElementById("stat-shootings").innerHTML=`<b>${shots}</b> shootings · <b>${fired}</b> shots fired`;
+  const p1=all.filter(i=>i.priority==="p1").length;
+  document.getElementById("stat-shootings").innerHTML=`<b>${p1}</b> priority 1`;
 }
 
 /* ── TOAST ───────────────────────────────────────────────────────────────────── */
@@ -741,6 +778,7 @@ async function loadAllData(){
 async function boot(){
   initMap();
   await loadDistrictBoundaries();
+  loadGangZoneMarkers();
   await loadConsulateMarkers();
   try{
     await loadAllData();
