@@ -383,23 +383,7 @@ function initMap(){
   loadStationMarkers();
 }
 
-function loadStationMarkers(){
-  BPD_STATIONS.forEach(st=>{
-    const d=BPD_DISTRICTS[st.d]||{};
-    const color=d.color||"#94a3b8";
-    const icon=L.divIcon({
-      className:"",
-      html:`<div style="width:10px;height:10px;background:${color};border:2px solid rgba(255,255,255,0.8);border-radius:2px;box-shadow:0 0 6px ${color}80;transform:rotate(45deg)"></div>`,
-      iconSize:[10,10],iconAnchor:[5,5]
-    });
-    L.marker([st.lat,st.lng],{icon,zIndexOffset:-50}).addTo(S.map).bindPopup(`
-      <div style="font-family:'Space Grotesk',sans-serif;min-width:180px">
-        <div class="p-badge" style="background:${color}20;color:${color};border:1px solid ${color}40">🚔 BPD DISTRICT ${st.d}</div>
-        <div class="p-title">${st.name}</div>
-        <div class="p-row">📍 <b>${st.addr}</b></div>
-      </div>`);
-  });
-}
+function loadStationMarkers(){ /* Stations hidden — use Districts chip */ }
 
 async function loadDistrictBoundaries(){
   try{
@@ -462,9 +446,10 @@ async function loadConsulateMarkers(){
 function makePin(inc,selected){
   const isShooting = inc.source==="shootings"||inc.feed==="shootings";
   const isConsulate = inc.near_consulate;
+  const p = inc.priority||"p3";
   const col = isConsulate?"var(--lime)":isShooting?"var(--red)":
-    inc.priority==="p1"?"var(--red)":inc.priority==="p2"?"var(--amber)":
-    inc.priority==="medical"?"var(--blue)":"var(--text3)";
+    p==="p1"?"var(--red)":p==="p2"?"var(--amber)":
+    p==="medical"?"var(--blue)":"#475569";
   const sz=selected?18:10;
   const glow=selected?`box-shadow:0 0 12px ${col};`:"";
   return L.divIcon({className:"",
@@ -570,7 +555,7 @@ function syncMarkers(visible){
     else{
       const m=L.marker([inc.lat,inc.lng],{icon}).addTo(S.map);
       const di=getDistrictInfo(inc);
-      const col=inc.priority==="p1"?"var(--red)":inc.priority==="p2"?"var(--amber)":"var(--text3)";
+      const col=inc.priority==="p1"?"var(--red)":inc.priority==="p2"?"var(--amber)":inc.priority==="medical"?"var(--blue)":"#475569";
       m.bindPopup(`<div style="font-family:'Space Grotesk',sans-serif;min-width:200px">
         <span class="p-badge" style="background:${col}20;color:${col};border:1px solid ${col}40">${inc.priority?.toUpperCase()||"ROUTINE"}</span>
         <div class="p-title">${inc.title||inc.offense_desc||"Incident"}</div>
