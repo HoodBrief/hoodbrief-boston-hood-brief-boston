@@ -158,7 +158,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 /* MAP */
 #map-panel{position:relative;}
 #map{width:100%;height:100%;}
-.leaflet-tile-pane{filter:brightness(0.5) saturate(0.35) hue-rotate(185deg);}
+.leaflet-tile-pane{filter:brightness(1.4) contrast(0.9);}
 .leaflet-container{background:#040608;}
 .leaflet-popup-content-wrapper{background:var(--surface2)!important;color:var(--text)!important;border:1px solid var(--border2)!important;border-radius:7px!important;box-shadow:0 16px 48px rgba(0,0,0,0.85)!important;font-family:var(--font)!important;}
 .leaflet-popup-tip{background:var(--surface2)!important;}
@@ -395,7 +395,8 @@ function getDistrictInfo(inc){
 /* ── MAP ── */
 function initMap(){
   S.map=L.map("map",{center:CONFIG.CITY.center,zoom:CONFIG.CITY.zoom,zoomControl:false,attributionControl:false});
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(S.map);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:19}).addTo(S.map);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:19,pane:"shadowPane"}).addTo(S.map);
   L.control.zoom({position:"bottomright"}).addTo(S.map);
 }
 
